@@ -259,57 +259,47 @@ class NetSuiteClient:
     ) -> list[dict[str, Any]]:
         """Pull a monthly trial balance for a NetSuite subsidiary.
 
-        Returns rows with keys: acctnumber, fullname, type, debit, credit.
+        Returns rows with keys: acctnumber, fullname, accttype, amount.
+        ``amount`` is the net (positive = debit, negative = credit).
         """
         query = (
-            "SELECT a.acctnumber, a.fullname, a.type, "
-            "SUM(CASE WHEN tl.debit IS NOT NULL THEN tl.debit ELSE 0 END) AS debit, "
-            "SUM(CASE WHEN tl.credit IS NOT NULL THEN tl.credit ELSE 0 END) AS credit "
+            "SELECT a.acctnumber, a.fullname, a.accttype, "
+            "SUM(tl.amount) AS amount "
             "FROM transaction t "
             "JOIN transactionline tl ON t.id = tl.transaction "
             "JOIN account a ON tl.account = a.id "
             f"WHERE t.subsidiary = {int(subsidiary_id)} "
-            f"AND MONTH(t.trandate) = {int(month)} "
-            f"AND YEAR(t.trandate) = {int(year)} "
+            f"AND EXTRACT(MONTH FROM t.trandate) = {int(month)} "
+            f"AND EXTRACT(YEAR FROM t.trandate) = {int(year)} "
             "AND t.posting = 'T' "
-            "GROUP BY a.acctnumber, a.fullname, a.type "
+            "GROUP BY a.acctnumber, a.fullname, a.accttype "
             "ORDER BY a.acctnumber"
         )
         return await self._suiteql(query)
 
     async def list_subsidiaries(self) -> list[dict[str, Any]]:
-        """GET /services/rest/record/v1/subsidiary — all subsidiaries.
+        """SuiteQL subsidiary list (REST record API omits names in list view).
 
-        Returns list of ``{internalId, name}``.
+        Returns list of ``{internalId, name, fullname}``.
         """
-        all_items: list[dict[str, Any]] = []
-        offset = 0
-        limit = 1000
-
-        while True:
-            resp = await self._request(
-                "GET",
-                "/services/rest/record/v1/subsidiary",
-                params={"limit": str(limit), "offset": str(offset)},
-            )
-            data = resp.json()
-            for item in data.get("items", []):
-                all_items.append({
-                    "internalId": item["id"],
-                    "name": item.get("name", ""),
-                })
-            if not data.get("hasMore", False):
-                break
-            offset += limit
-
-        return all_items
+        rows = await self._suiteql(
+            "SELECT id, name, fullname FROM subsidiary ORDER BY name"
+        )
+        return [
+            {
+                "internalId": row["id"],
+                "name": row.get("name", ""),
+                "fullname": row.get("fullname", ""),
+            }
+            for row in rows
+        ]
 
     async def list_accounts(self) -> list[dict[str, Any]]:
         """SuiteQL full account list for COA mapping admin.
 
-        Returns rows with keys: id, acctnumber, fullname, type.
+        Returns rows with keys: id, acctnumber, fullname, accttype.
         """
         return await self._suiteql(
-            "SELECT id, acctnumber, fullname, type "
+            "SELECT id, acctnumber, fullname, accttype "
             "FROM account ORDER BY acctnumber"
         )

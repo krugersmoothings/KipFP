@@ -29,7 +29,7 @@ celery_app.conf.update(
 )
 
 
-# ── Celery tasks ─────────────────────────────────────────────────────────────
+# ── NetSuite tasks ────────────────────────────────────────────────────────────
 
 
 @celery_app.task(name="app.worker.sync_entity_task")
@@ -43,6 +43,7 @@ def sync_entity_task(
     from app.services.netsuite_sync_service import sync_entity
 
     asyncio.run(sync_entity(entity_id, fy_year, fy_month, sync_run_id))
+    _trigger_auto_consolidation(fy_year, fy_month)
 
 
 @celery_app.task(name="app.worker.sync_all_netsuite")
@@ -77,6 +78,7 @@ async def _sync_all():
         )
         periods = result.scalars().all()
 
+    consolidated_periods = set()
     for entity in entities:
         for period in periods:
             try:
@@ -86,8 +88,60 @@ async def _sync_all():
                     period.fy_month,
                     triggered_by=SyncTrigger.schedule,
                 )
+                consolidated_periods.add((period.fy_year, period.fy_month))
             except Exception:
                 logger.exception(
                     "Scheduled sync failed for %s FY%dM%02d",
                     entity.code, period.fy_year, period.fy_month,
                 )
+
+    from app.services.consolidation_engine import consolidate_period
+    for fy_year, fy_month in consolidated_periods:
+        try:
+            await consolidate_period(fy_year, fy_month)
+        except Exception:
+            logger.exception(
+                "Auto-consolidation failed FY%dM%02d", fy_year, fy_month
+            )
+
+
+# ── Xero tasks ────────────────────────────────────────────────────────────────
+
+
+@celery_app.task(name="app.worker.sync_xero_entity_task")
+def sync_xero_entity_task(
+    entity_id: str,
+    fy_year: int,
+    fy_month: int,
+    sync_run_id: str | None = None,
+):
+    """Sync a single entity+period from Xero."""
+    from app.services.xero_sync_service import sync_entity
+
+    asyncio.run(sync_entity(entity_id, fy_year, fy_month, sync_run_id))
+    _trigger_auto_consolidation(fy_year, fy_month)
+
+
+# ── Consolidation tasks ──────────────────────────────────────────────────────
+
+
+@celery_app.task(name="app.worker.consolidate_period_task")
+def consolidate_period_task(fy_year: int, fy_month: int):
+    """Run consolidation for a period."""
+    from app.services.consolidation_engine import consolidate_period
+
+    asyncio.run(consolidate_period(fy_year, fy_month))
+
+
+def _trigger_auto_consolidation(fy_year: int, fy_month: int):
+    """Fire-and-forget consolidation after a successful sync."""
+    try:
+        consolidate_period_task.delay(fy_year, fy_month)
+        logger.info(
+            "Auto-consolidation queued for FY%dM%02d", fy_year, fy_month,
+        )
+    except Exception:
+        logger.exception(
+            "Failed to queue auto-consolidation for FY%dM%02d",
+            fy_year, fy_month,
+        )

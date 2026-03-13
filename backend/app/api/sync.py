@@ -49,6 +49,39 @@ async def trigger_netsuite_sync(
     return SyncTriggerResponse(sync_run_id=run_id, status="queued")
 
 
+@router.post(
+    "/xero/{entity_id}",
+    response_model=SyncTriggerResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+)
+async def trigger_xero_sync(
+    entity_id: uuid.UUID,
+    body: SyncRequest,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(require_admin),
+):
+    """Trigger a Xero trial balance sync for one entity + period."""
+    from app.worker import sync_xero_entity_task
+
+    run_id = uuid.uuid4()
+
+    run = SyncRun(
+        id=run_id,
+        entity_id=entity_id,
+        source_system="xero",
+        status=SyncStatus.running,
+        triggered_by=SyncTrigger.manual,
+    )
+    db.add(run)
+    await db.commit()
+
+    sync_xero_entity_task.delay(
+        str(entity_id), body.fy_year, body.fy_month, str(run_id),
+    )
+
+    return SyncTriggerResponse(sync_run_id=run_id, status="queued")
+
+
 @router.get("/runs", response_model=list[SyncRunRead])
 async def list_sync_runs(
     db: AsyncSession = Depends(get_db),

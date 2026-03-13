@@ -19,6 +19,8 @@ class Base(DeclarativeBase):
 from app.db.models import (  # noqa: E402, F401
     account,
     budget,
+    consolidation,
+    credential,
     debt,
     entity,
     location,

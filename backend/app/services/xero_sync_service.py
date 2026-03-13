@@ -1,37 +1,26 @@
-"""NetSuite → je_lines sync service.
+"""Xero → je_lines sync service.
 
-Pulls trial balance data from NetSuite via SuiteQL and upserts rows
-into the ``je_lines`` table, tracking each run in ``sync_runs``.
+Mirrors netsuite_sync_service but pulls trial balance data from Xero.
+Xero uses account names (not codes) as source_account_code in je_lines.
 """
 
+import calendar
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
-from app.connectors.netsuite import NetSuiteClient
+from app.connectors.xero import get_authenticated_client
 from app.db.base import async_session_factory
 from app.db.models.entity import Entity
 from app.db.models.period import Period
 from app.db.models.sync import JeLine, SyncRun, SyncStatus, SyncTrigger
+from app.services.netsuite_sync_service import fy_to_calendar
 
 logger = logging.getLogger(__name__)
-
-
-def fy_to_calendar(fy_year: int, fy_month: int) -> tuple[int, int]:
-    """Convert Australian financial-year month to calendar year/month.
-
-    FY month 1 = Jul, so fy_month 1 of fy_year 2024 → Jul 2023.
-
-        fy_month 1-6  → calendar_month = fy_month + 6, calendar_year = fy_year - 1
-        fy_month 7-12 → calendar_month = fy_month - 6, calendar_year = fy_year
-    """
-    if fy_month <= 6:
-        return fy_year - 1, fy_month + 6
-    return fy_year, fy_month - 6
 
 
 async def sync_entity(
@@ -41,10 +30,7 @@ async def sync_entity(
     sync_run_id: str | uuid.UUID | None = None,
     triggered_by: SyncTrigger = SyncTrigger.manual,
 ) -> uuid.UUID:
-    """Pull a trial balance from NetSuite and upsert into je_lines.
-
-    If *sync_run_id* references an existing ``sync_runs`` row (e.g. pre-created
-    by the API endpoint), it is reused.  Otherwise a new row is inserted.
+    """Pull a trial balance from Xero and upsert into je_lines.
 
     Returns the sync_run id.
     """
@@ -52,7 +38,6 @@ async def sync_entity(
     run_id = uuid.UUID(str(sync_run_id)) if sync_run_id else uuid.uuid4()
 
     async with async_session_factory() as db:
-        # 1. Create / reuse sync_run ──────────────────────────────────────
         existing = await db.get(SyncRun, run_id)
         if existing:
             run = existing
@@ -62,7 +47,7 @@ async def sync_entity(
             run = SyncRun(
                 id=run_id,
                 entity_id=entity_id,
-                source_system="netsuite",
+                source_system="xero",
                 started_at=datetime.now(timezone.utc),
                 status=SyncStatus.running,
                 triggered_by=triggered_by,
@@ -71,18 +56,10 @@ async def sync_entity(
         await db.flush()
 
         try:
-            # 2. Look up entity → NS subsidiary id ───────────────────────
             entity = await db.get(Entity, entity_id)
             if entity is None:
                 raise ValueError(f"Entity {entity_id} not found")
-            if not entity.source_entity_id:
-                raise ValueError(
-                    f"Entity {entity.code} has no source_entity_id "
-                    "(NetSuite subsidiary internal id)"
-                )
-            subsidiary_id = entity.source_entity_id
 
-            # 3. Convert FY → calendar month ─────────────────────────────
             cal_year, cal_month = fy_to_calendar(fy_year, fy_month)
 
             result = await db.execute(
@@ -97,30 +74,35 @@ async def sync_entity(
                     f"Period FY{fy_year} M{fy_month} not found in periods table"
                 )
 
-            # 4. Fetch trial balance from NetSuite ────────────────────────
-            client = NetSuiteClient()
-            rows = await client.get_trial_balance(
-                subsidiary_id, cal_year, cal_month,
-            )
+            from_date = date(cal_year, cal_month, 1)
+            last_day = calendar.monthrange(cal_year, cal_month)[1]
+            to_date = date(cal_year, cal_month, last_day)
+
+            client = await get_authenticated_client()
+            rows = await client.get_trial_balance(from_date, to_date)
             logger.info(
-                "NetSuite returned %d TB rows for entity=%s period=FY%dM%02d",
+                "Xero returned %d TB rows for entity=%s period=FY%dM%02d",
                 len(rows), entity.code, fy_year, fy_month,
             )
 
-            # 5. Upsert je_lines ─────────────────────────────────────────
             upserted = 0
             for row in rows:
-                amount = Decimal(str(row.get("amount", 0) or 0))
+                debit = Decimal(str(row.get("Debit", 0) or 0))
+                credit = Decimal(str(row.get("Credit", 0) or 0))
+                amount = debit - credit
 
+                source_key = str(row.get("AccountName", ""))
+
+                from sqlalchemy import func
                 stmt = insert(JeLine).values(
                     id=uuid.uuid4(),
                     entity_id=entity_id,
                     period_id=period.id,
-                    source_account_code=str(row.get("acctnumber", "")),
-                    source_account_name=str(row.get("fullname", "")),
+                    source_account_code=source_key,
+                    source_account_name=source_key,
                     amount=amount,
                     sync_run_id=run_id,
-                    source_ref=str(row.get("accttype", "")),
+                    source_ref=str(row.get("AccountID", "")),
                     location_id=None,
                 )
                 stmt = stmt.on_conflict_do_update(
@@ -136,20 +118,18 @@ async def sync_entity(
                 await db.execute(stmt)
                 upserted += 1
 
-            # 6. Mark success ─────────────────────────────────────────────
             run.status = SyncStatus.success
             run.records_upserted = upserted
             run.completed_at = datetime.now(timezone.utc)
             await db.commit()
 
             logger.info(
-                "Sync complete entity=%s FY%dM%02d — %d rows upserted",
+                "Xero sync complete entity=%s FY%dM%02d — %d rows upserted",
                 entity.code, fy_year, fy_month, upserted,
             )
 
         except Exception as exc:
-            # 7. Mark failed ──────────────────────────────────────────────
-            logger.exception("Sync failed for entity_id=%s", entity_id)
+            logger.exception("Xero sync failed for entity_id=%s", entity_id)
             run.status = SyncStatus.failed
             run.error_detail = str(exc)[:2000]
             run.completed_at = datetime.now(timezone.utc)
