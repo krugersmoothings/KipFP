@@ -11,7 +11,7 @@ from sqlalchemy import (
     String,
     Text,
 )
-from sqlalchemy import Index
+from sqlalchemy import Index, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -59,6 +59,10 @@ class JeLine(Base):
     __table_args__ = (
         Index("ix_je_lines_entity_period", "entity_id", "period_id"),
         Index("ix_je_lines_source_account", "source_account_code"),
+        UniqueConstraint(
+            "entity_id", "period_id", "source_account_code",
+            name="uq_je_lines_entity_period_account",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
