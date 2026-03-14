@@ -303,3 +303,16 @@ class NetSuiteClient:
             "SELECT id, acctnumber, fullname, accttype "
             "FROM account ORDER BY acctnumber"
         )
+
+    async def list_locations(self) -> list[dict[str, Any]]:
+        """SuiteQL location list with subsidiary assignment.
+
+        Returns rows with keys: id, name, subsidiary, isinactive.
+        The ``subsidiary`` field is the internal ID of the owning subsidiary.
+        """
+        return await self._suiteql(
+            "SELECT l.id, l.name, l.subsidiary, l.isinactive "
+            "FROM location l "
+            "WHERE l.isinactive = 'F' "
+            "ORDER BY l.name"
+        )

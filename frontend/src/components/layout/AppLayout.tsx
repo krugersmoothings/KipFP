@@ -14,6 +14,11 @@ import {
   Menu,
   X,
   ChevronDown,
+  Settings2,
+  Droplets,
+  Landmark,
+  BarChart3,
+  MapPin,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { Button } from "@/components/ui/button";
@@ -58,6 +63,16 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Consolidated P&L", to: "/actuals/consolidated", icon: <FileText className={iconClass} /> },
       { label: "Balance Sheet", to: "/actuals/bs", icon: <FileSpreadsheet className={iconClass} /> },
       { label: "Sync Status", to: "/actuals/sync", icon: <RefreshCw className={iconClass} />, minRole: "finance" },
+    ],
+  },
+  {
+    title: "Budget",
+    items: [
+      { label: "Assumptions", to: "/budget/assumptions", icon: <Settings2 className={iconClass} />, minRole: "finance" as UserRole },
+      { label: "Working Capital", to: "/budget/wc", icon: <Droplets className={iconClass} />, minRole: "finance" as UserRole },
+      { label: "Debt Schedule", to: "/budget/debt", icon: <Landmark className={iconClass} />, minRole: "finance" as UserRole },
+      { label: "Site Budgets", to: "/budget/sites", icon: <MapPin className={iconClass} />, minRole: "finance" as UserRole },
+      { label: "Output", to: "/budget/output", icon: <BarChart3 className={iconClass} />, minRole: "finance" as UserRole },
     ],
   },
   {

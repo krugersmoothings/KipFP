@@ -13,6 +13,11 @@ import RunConsolidation from "@/pages/consolidation/RunConsolidation";
 import UsersPage from "@/pages/admin/Users";
 import Connections from "@/pages/admin/Connections";
 import Entities from "@/pages/admin/Entities";
+import BudgetAssumptions from "@/pages/budget/Assumptions";
+import BudgetWorkingCapital from "@/pages/budget/WorkingCapital";
+import BudgetDebtSchedule from "@/pages/budget/DebtSchedule";
+import BudgetOutput from "@/pages/budget/Output";
+import SiteBudget from "@/pages/budget/SiteBudget";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -59,6 +64,48 @@ export default function App() {
             element={
               <RoleGuard minRole="finance">
                 <SyncRuns />
+              </RoleGuard>
+            }
+          />
+
+          {/* Budget — finance+ */}
+          <Route
+            path="budget/assumptions"
+            element={
+              <RoleGuard minRole="finance">
+                <BudgetAssumptions />
+              </RoleGuard>
+            }
+          />
+          <Route
+            path="budget/wc"
+            element={
+              <RoleGuard minRole="finance">
+                <BudgetWorkingCapital />
+              </RoleGuard>
+            }
+          />
+          <Route
+            path="budget/debt"
+            element={
+              <RoleGuard minRole="finance">
+                <BudgetDebtSchedule />
+              </RoleGuard>
+            }
+          />
+          <Route
+            path="budget/output"
+            element={
+              <RoleGuard minRole="finance">
+                <BudgetOutput />
+              </RoleGuard>
+            }
+          />
+          <Route
+            path="budget/sites"
+            element={
+              <RoleGuard minRole="finance">
+                <SiteBudget />
               </RoleGuard>
             }
           />
