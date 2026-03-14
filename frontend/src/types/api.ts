@@ -8,23 +8,26 @@ export interface User {
   created_at: string;
 }
 
-export interface EntityBreakdown {
-  entity_id: string;
-  entity_code: string;
-  amount: number;
+// ── Entities ────────────────────────────────────────────────────────────
+
+export interface EntityRead {
+  id: string;
+  code: string;
+  name: string | null;
+  source_system: string | null;
+  is_active: boolean;
+  currency: string;
+  consolidation_method: string;
+  acquisition_date: string | null;
 }
 
-export interface ConsolidatedLineItem {
-  account_code: string;
-  account_name: string;
-  amount: number;
-  is_subtotal: boolean;
-  entity_breakdown: EntityBreakdown[];
-}
+// ── Sync ────────────────────────────────────────────────────────────────
 
 export interface SyncRunRead {
   id: string;
   entity_id: string | null;
+  entity_code: string | null;
+  entity_name: string | null;
   source_system: string | null;
   started_at: string | null;
   completed_at: string | null;
@@ -33,6 +36,39 @@ export interface SyncRunRead {
   error_detail: string | null;
   triggered_by: string;
 }
+
+// ── Consolidated financials ─────────────────────────────────────────────
+
+export interface FinancialRow {
+  account_code: string;
+  label: string;
+  is_subtotal: boolean;
+  is_section_header: boolean;
+  indent_level: number;
+  values: Record<string, number>;
+  entity_breakdown: Record<string, Record<string, number>>;
+}
+
+export interface FinancialStatementResponse {
+  periods: string[];
+  rows: FinancialRow[];
+}
+
+// ── Dashboard KPIs ──────────────────────────────────────────────────────
+
+export interface DashboardKPIs {
+  revenue_mtd: number;
+  revenue_pcp: number;
+  gm_pct: number | null;
+  gm_pct_pcp: number | null;
+  ebitda_mtd: number;
+  ebitda_ytd: number;
+  net_cash: number;
+  total_debt: number;
+  last_sync_at: string | null;
+}
+
+// ── Consolidation ───────────────────────────────────────────────────────
 
 export interface ConsolidationRunRead {
   id: string;

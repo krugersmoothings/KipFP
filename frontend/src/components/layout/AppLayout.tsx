@@ -53,22 +53,17 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    title: "Financials",
+    title: "Actuals",
     items: [
-      { label: "Income Statement", to: "/financials/is", icon: <FileText className={iconClass} /> },
-      { label: "Balance Sheet", to: "/financials/bs", icon: <FileSpreadsheet className={iconClass} /> },
+      { label: "Consolidated P&L", to: "/actuals/consolidated", icon: <FileText className={iconClass} /> },
+      { label: "Balance Sheet", to: "/actuals/bs", icon: <FileSpreadsheet className={iconClass} /> },
+      { label: "Sync Status", to: "/actuals/sync", icon: <RefreshCw className={iconClass} />, minRole: "finance" },
     ],
   },
   {
-    title: "Data Sync",
+    title: "Operations",
     items: [
-      { label: "Sync Runs", to: "/sync/runs", icon: <RefreshCw className={iconClass} />, minRole: "finance" },
       { label: "Trigger Sync", to: "/sync/trigger", icon: <Play className={iconClass} />, minRole: "admin" },
-    ],
-  },
-  {
-    title: "Consolidation",
-    items: [
       { label: "Run Consolidation", to: "/consolidation/run", icon: <Calculator className={iconClass} />, minRole: "admin" },
     ],
   },
@@ -200,7 +195,7 @@ export default function AppLayout() {
 
       {/* Main content */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Top bar (mobile hamburger + breadcrumb area) */}
+        {/* Top bar */}
         <header className="flex h-16 shrink-0 items-center gap-4 border-b px-4 lg:px-6">
           <button
             className="rounded-md p-1 text-muted-foreground hover:text-foreground lg:hidden"

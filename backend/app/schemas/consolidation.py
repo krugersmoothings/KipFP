@@ -1,6 +1,5 @@
 import uuid
 from datetime import datetime
-from decimal import Decimal
 
 from pydantic import BaseModel
 
@@ -36,3 +35,36 @@ class ConsolidatedLineItem(BaseModel):
     amount: float
     is_subtotal: bool = False
     entity_breakdown: list[EntityBreakdown] = []
+
+
+# ── Multi-period financial statement response ────────────────────────────
+
+
+class FinancialRow(BaseModel):
+    account_code: str
+    label: str
+    is_subtotal: bool = False
+    is_section_header: bool = False
+    indent_level: int = 0
+    values: dict[str, float] = {}
+    entity_breakdown: dict[str, dict[str, float]] = {}
+
+
+class FinancialStatementResponse(BaseModel):
+    periods: list[str]
+    rows: list[FinancialRow]
+
+
+# ── Dashboard KPIs ───────────────────────────────────────────────────────
+
+
+class DashboardKPIs(BaseModel):
+    revenue_mtd: float = 0
+    revenue_pcp: float = 0
+    gm_pct: float | None = None
+    gm_pct_pcp: float | None = None
+    ebitda_mtd: float = 0
+    ebitda_ytd: float = 0
+    net_cash: float = 0
+    total_debt: float = 0
+    last_sync_at: datetime | None = None

@@ -1,6 +1,12 @@
 import { create } from "zustand";
 
 const now = new Date();
+const calMonth = now.getMonth() + 1; // 1-12
+const calYear = now.getFullYear();
+
+// Australian FY: Jul=M01 … Jun=M12
+const defaultFyMonth = calMonth >= 7 ? calMonth - 6 : calMonth + 6;
+const defaultFyYear = calMonth >= 7 ? calYear + 1 : calYear;
 
 interface PeriodState {
   fyYear: number;
@@ -11,8 +17,8 @@ interface PeriodState {
 }
 
 export const usePeriodStore = create<PeriodState>((set) => ({
-  fyYear: now.getFullYear(),
-  fyMonth: now.getMonth() + 1,
+  fyYear: defaultFyYear,
+  fyMonth: defaultFyMonth,
 
   setFyYear: (fyYear) => set({ fyYear }),
   setFyMonth: (fyMonth) => set({ fyMonth }),

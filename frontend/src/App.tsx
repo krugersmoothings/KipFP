@@ -51,19 +51,24 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="unauthorised" element={<Unauthorised />} />
 
-          {/* Financials — all authenticated users */}
-          <Route path="financials/is" element={<IncomeStatement />} />
-          <Route path="financials/bs" element={<BalanceSheet />} />
-
-          {/* Sync — finance+ */}
+          {/* Actuals — consolidated financials */}
+          <Route path="actuals/consolidated" element={<IncomeStatement />} />
+          <Route path="actuals/bs" element={<BalanceSheet />} />
           <Route
-            path="sync/runs"
+            path="actuals/sync"
             element={
               <RoleGuard minRole="finance">
                 <SyncRuns />
               </RoleGuard>
             }
           />
+
+          {/* Legacy routes — redirect to new paths */}
+          <Route path="financials/is" element={<Navigate to="/actuals/consolidated" replace />} />
+          <Route path="financials/bs" element={<Navigate to="/actuals/bs" replace />} />
+          <Route path="sync/runs" element={<Navigate to="/actuals/sync" replace />} />
+
+          {/* Sync trigger — admin only */}
           <Route
             path="sync/trigger"
             element={

@@ -17,6 +17,8 @@ class SyncTriggerResponse(BaseModel):
 class SyncRunRead(BaseModel):
     id: uuid.UUID
     entity_id: uuid.UUID | None = None
+    entity_code: str | None = None
+    entity_name: str | None = None
     source_system: str | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
