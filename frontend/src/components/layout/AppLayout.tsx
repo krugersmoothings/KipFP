@@ -19,6 +19,9 @@ import {
   Landmark,
   BarChart3,
   MapPin,
+  TrendingUp,
+  GitBranch,
+  BookOpen,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { Button } from "@/components/ui/button";
@@ -73,6 +76,8 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Debt Schedule", to: "/budget/debt", icon: <Landmark className={iconClass} />, minRole: "finance" as UserRole },
       { label: "Site Budgets", to: "/budget/sites", icon: <MapPin className={iconClass} />, minRole: "finance" as UserRole },
       { label: "Output", to: "/budget/output", icon: <BarChart3 className={iconClass} />, minRole: "finance" as UserRole },
+      { label: "Variance", to: "/variance", icon: <TrendingUp className={iconClass} />, minRole: "finance" as UserRole },
+      { label: "Scenarios", to: "/scenarios", icon: <GitBranch className={iconClass} />, minRole: "finance" as UserRole },
     ],
   },
   {
@@ -88,6 +93,7 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Users", to: "/admin/users", icon: <Users className={iconClass} />, minRole: "admin" },
       { label: "Entities", to: "/admin/entities", icon: <Building2 className={iconClass} />, minRole: "admin" },
       { label: "Connections", to: "/admin/connections", icon: <LinkIcon className={iconClass} />, minRole: "admin" },
+      { label: "COA Mapping", to: "/admin/coa", icon: <BookOpen className={iconClass} />, minRole: "admin" },
     ],
   },
 ];

@@ -18,6 +18,10 @@ import BudgetWorkingCapital from "@/pages/budget/WorkingCapital";
 import BudgetDebtSchedule from "@/pages/budget/DebtSchedule";
 import BudgetOutput from "@/pages/budget/Output";
 import SiteBudget from "@/pages/budget/SiteBudget";
+import VariancePage from "@/pages/reports/Variance";
+import ScenarioList from "@/pages/scenarios/ScenarioList";
+import ScenarioCompare from "@/pages/scenarios/ScenarioCompare";
+import CoaMapping from "@/pages/admin/CoaMapping";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -106,6 +110,42 @@ export default function App() {
             element={
               <RoleGuard minRole="finance">
                 <SiteBudget />
+              </RoleGuard>
+            }
+          />
+
+          {/* Variance & Scenarios — finance+ */}
+          <Route
+            path="variance"
+            element={
+              <RoleGuard minRole="finance">
+                <VariancePage />
+              </RoleGuard>
+            }
+          />
+          <Route
+            path="scenarios"
+            element={
+              <RoleGuard minRole="finance">
+                <ScenarioList />
+              </RoleGuard>
+            }
+          />
+          <Route
+            path="scenarios/compare"
+            element={
+              <RoleGuard minRole="finance">
+                <ScenarioCompare />
+              </RoleGuard>
+            }
+          />
+
+          {/* Admin — COA Mapping */}
+          <Route
+            path="admin/coa"
+            element={
+              <RoleGuard minRole="admin">
+                <CoaMapping />
               </RoleGuard>
             }
           />

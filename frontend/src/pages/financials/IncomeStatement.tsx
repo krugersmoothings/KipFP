@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, ToggleLeft, ToggleRight } from "lucide-react";
+import { Loader2, ToggleLeft, ToggleRight, Download } from "lucide-react";
 import api from "@/utils/api";
 import { usePeriodStore } from "@/stores/period";
 import { Button } from "@/components/ui/button";
@@ -10,6 +10,7 @@ import type { FinancialStatementResponse } from "@/types/api";
 export default function IncomeStatement() {
   const { fyYear, fyMonth } = usePeriodStore();
   const [showBreakdown, setShowBreakdown] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const { data, isLoading, error, refetch } = useQuery<FinancialStatementResponse>({
     queryKey: ["consolidated-is", fyYear, fyMonth],
@@ -20,6 +21,27 @@ export default function IncomeStatement() {
       return res.data;
     },
   });
+
+  const handleExport = useCallback(async () => {
+    setExporting(true);
+    try {
+      const res = await api.post(
+        "/api/v1/reports/export",
+        { type: "actuals", fy_year: fyYear, format: "xlsx" },
+        { responseType: "blob" }
+      );
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `kip_actuals_FY${fyYear}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
+  }, [fyYear]);
 
   return (
     <div className="space-y-6">
@@ -32,18 +54,33 @@ export default function IncomeStatement() {
             FY{fyYear} &middot; M{String(fyMonth).padStart(2, "0")} + YTD
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setShowBreakdown((b) => !b)}
-        >
-          {showBreakdown ? (
-            <ToggleRight className="mr-2 h-4 w-4 text-primary" />
-          ) : (
-            <ToggleLeft className="mr-2 h-4 w-4" />
-          )}
-          Entity Breakdown
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExport}
+            disabled={exporting}
+          >
+            {exporting ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="mr-2 h-4 w-4" />
+            )}
+            Export Excel
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowBreakdown((b) => !b)}
+          >
+            {showBreakdown ? (
+              <ToggleRight className="mr-2 h-4 w-4 text-primary" />
+            ) : (
+              <ToggleLeft className="mr-2 h-4 w-4" />
+            )}
+            Entity Breakdown
+          </Button>
+        </div>
       </div>
 
       {isLoading && (

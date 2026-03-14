@@ -245,3 +245,137 @@ export interface SiteRollupRow {
   model_assumption: Record<string, number>;
   variance: Record<string, number>;
 }
+
+// ── Variance Report ────────────────────────────────────────────────────
+
+export interface VarianceRow {
+  account_id: string | null;
+  account_code: string;
+  label: string;
+  is_subtotal: boolean;
+  is_section_header: boolean;
+  indent_level: number;
+  actual: number;
+  budget: number;
+  variance_abs: number;
+  variance_pct: number | null;
+  is_favourable: boolean | null;
+  prior_year_actual: number;
+  vs_pcp_abs: number;
+  vs_pcp_pct: number | null;
+  commentary: string | null;
+}
+
+export interface VarianceReportResponse {
+  fy_year: number;
+  period_label: string;
+  version_id: string;
+  view_mode: string;
+  rows: VarianceRow[];
+}
+
+export interface CommentaryPayload {
+  version_id: string;
+  account_id: string;
+  period_id: string | null;
+  comment: string;
+}
+
+// ── Scenarios ──────────────────────────────────────────────────────────
+
+export interface ScenarioRead {
+  id: string;
+  name: string;
+  fy_year: number;
+  version_type: string;
+  status: string;
+  base_version_id: string | null;
+  description: string | null;
+  created_at: string;
+}
+
+export interface ScenarioCreate {
+  name: string;
+  base_version_id: string;
+  description?: string;
+}
+
+export interface ScenarioMetric {
+  scenario_id: string;
+  scenario_name: string;
+  revenue: number;
+  gm_pct: number | null;
+  ebitda: number;
+  ebitda_pct: number | null;
+  npat: number;
+  operating_cf: number;
+  closing_cash: number;
+  total_debt: number;
+}
+
+export interface ScenarioCompareResponse {
+  fy_year: number;
+  scenarios: ScenarioMetric[];
+}
+
+// ── Export ──────────────────────────────────────────────────────────────
+
+export interface ExportRequest {
+  type: "variance" | "budget" | "actuals";
+  version_id?: string;
+  fy_year: number;
+  format: "xlsx" | "pdf";
+}
+
+// ── COA Mapping ────────────────────────────────────────────────────────
+
+export interface SourceAccountRead {
+  entity_id: string;
+  entity_code: string;
+  entity_name: string | null;
+  source_account_code: string;
+  source_account_name: string | null;
+  is_mapped: boolean;
+  mapping_id: string | null;
+  target_account_code: string | null;
+  target_account_name: string | null;
+}
+
+export interface TargetAccountRead {
+  id: string;
+  code: string;
+  name: string;
+  account_type: string | null;
+  statement: string | null;
+}
+
+export interface AccountMappingRead {
+  id: string;
+  entity_id: string;
+  source_account_code: string;
+  source_account_name: string | null;
+  target_account_id: string;
+  target_account_code: string | null;
+  target_account_name: string | null;
+  multiplier: number;
+  effective_from: string;
+  effective_to: string | null;
+  notes: string | null;
+}
+
+export interface AccountMappingSave {
+  entity_id: string;
+  source_account_code: string;
+  source_account_name?: string;
+  target_account_id: string;
+  multiplier: number;
+  effective_from: string;
+  notes?: string;
+}
+
+export interface ValidationResult {
+  total_source_accounts: number;
+  mapped_count: number;
+  unmapped_count: number;
+  unmapped_accounts: SourceAccountRead[];
+}
