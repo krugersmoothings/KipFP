@@ -10,7 +10,7 @@ import calendar
 import hashlib
 import logging
 import time
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 from urllib.parse import urlencode
 
@@ -110,25 +110,28 @@ class XeroClient:
 
         raise XeroAPIError("Xero request failed: max retries exceeded (429)")
 
-    async def get_trial_balance(
-        self,
-        from_date: date,
-        to_date: date,
-    ) -> list[dict[str, Any]]:
-        """Fetch trial balance report for a date range.
+    @staticmethod
+    def _normalize_account_name(raw_name: str) -> str:
+        """Strip trailing Xero account code, e.g. 'Sales (200)' → 'Sales'."""
+        import re
+        return re.sub(r"\s*\(\d+\)\s*$", "", raw_name).strip()
 
-        Returns rows with keys: AccountID, AccountName, Debit, Credit.
+    async def get_trial_balance_at_date(
+        self,
+        as_at: date,
+    ) -> dict[str, dict[str, Any]]:
+        """Fetch trial balance as at a specific date.
+
+        Returns ``{normalised_name: {"raw": str, "amount": float, "id": str}}``.
+        Amount is debit-positive (debit − credit).
         """
         resp = await self._request(
             "GET",
             "/api.xro/2.0/Reports/TrialBalance",
-            params={
-                "fromDate": from_date.isoformat(),
-                "toDate": to_date.isoformat(),
-            },
+            params={"date": as_at.isoformat()},
         )
         data = resp.json()
-        rows: list[dict[str, Any]] = []
+        result: dict[str, dict[str, Any]] = {}
 
         for report in data.get("Reports", []):
             for section in report.get("Rows", []):
@@ -140,26 +143,96 @@ class XeroClient:
                     cells = row.get("Cells", [])
                     if len(cells) < 3:
                         continue
-                    account_name = cells[0].get("Value", "")
+                    raw_name = cells[0].get("Value", "")
+                    if not raw_name:
+                        continue
                     account_id = ""
                     for attr in cells[0].get("Attributes", []):
                         if attr.get("Id") == "account" and "Value" in attr:
                             account_id = attr["Value"]
-                    debit = cells[1].get("Value", "0") or "0"
-                    credit = cells[2].get("Value", "0") or "0"
+                    debit = float(cells[1].get("Value", "0") or "0")
+                    credit = float(cells[2].get("Value", "0") or "0")
+                    norm = self._normalize_account_name(raw_name)
+                    result[norm] = {
+                        "raw": raw_name,
+                        "amount": debit - credit,
+                        "id": account_id,
+                    }
 
-                    if not account_name:
-                        continue
+        logger.debug(
+            "Xero TB as-at %s returned %d accounts", as_at.isoformat(), len(result),
+        )
+        return result
 
-                    rows.append({
-                        "AccountID": account_id,
-                        "AccountName": account_name,
-                        "Debit": float(debit),
-                        "Credit": float(credit),
-                    })
+    async def get_monthly_activity(
+        self,
+        month_end: date,
+        prev_month_end: date | None,
+    ) -> list[dict[str, Any]]:
+        """Compute monthly P&L/BS activity by differencing two TB snapshots.
 
-        logger.debug("Xero trial balance returned %d rows", len(rows))
+        If *prev_month_end* is ``None`` (first month of FY), the current
+        month-end TB is used directly as the activity.
+
+        Returns rows compatible with the old ``get_trial_balance`` format:
+        ``[{AccountID, AccountName, Debit, Credit}, ...]``
+        """
+        current = await self.get_trial_balance_at_date(month_end)
+
+        if prev_month_end is not None:
+            previous = await self.get_trial_balance_at_date(prev_month_end)
+        else:
+            previous = {}
+
+        rows: list[dict[str, Any]] = []
+        all_names = set(current.keys()) | set(previous.keys())
+        for name in sorted(all_names):
+            cur_amt = current.get(name, {}).get("amount", 0.0)
+            prev_amt = previous.get(name, {}).get("amount", 0.0)
+            activity = cur_amt - prev_amt
+            account_id = current.get(name, previous.get(name, {})).get("id", "")
+
+            if abs(activity) < 0.005:
+                continue
+
+            if activity >= 0:
+                rows.append({
+                    "AccountID": account_id,
+                    "AccountName": name,
+                    "Debit": activity,
+                    "Credit": 0.0,
+                })
+            else:
+                rows.append({
+                    "AccountID": account_id,
+                    "AccountName": name,
+                    "Debit": 0.0,
+                    "Credit": -activity,
+                })
+
+        logger.debug(
+            "Xero monthly activity %s→%s: %d accounts with movement",
+            prev_month_end, month_end, len(rows),
+        )
         return rows
+
+    async def get_trial_balance(
+        self,
+        from_date: date,
+        to_date: date,
+    ) -> list[dict[str, Any]]:
+        """Fetch monthly activity via two TB snapshots.
+
+        Uses month-end differencing under the hood.  The first month of the
+        Australian FY (July, i.e. ``from_date.month == 7``) uses the month-end
+        TB directly; all other months diff against the previous month-end.
+        """
+        prev_month_end: date | None = None
+        if from_date.day == 1:
+            prev_last_day = from_date - timedelta(days=1)
+            prev_month_end = prev_last_day
+
+        return await self.get_monthly_activity(to_date, prev_month_end)
 
     async def get_accounts(self) -> list[dict[str, Any]]:
         """Fetch full chart of accounts."""
@@ -177,7 +250,7 @@ def build_authorize_url(state: str) -> str:
         "response_type": "code",
         "client_id": settings.XERO_CLIENT_ID,
         "redirect_uri": settings.XERO_REDIRECT_URI,
-        "scope": "openid profile email accounting.transactions.read accounting.reports.read accounting.settings.read offline_access",
+        "scope": "openid profile email offline_access accounting.reports.trialbalance.read accounting.reports.balancesheet.read accounting.settings.read accounting.contacts.read",
         "state": state,
     }
     return f"{AUTHORIZE_URL}?{urlencode(params)}"
