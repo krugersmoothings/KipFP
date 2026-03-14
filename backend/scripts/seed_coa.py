@@ -157,7 +157,7 @@ NS_MAPPINGS_SH: list[dict] = [
 
 # ── Xero account mappings for MC ─────────────────────────────────────────
 
-MC_EFFECTIVE = date(2023, 1, 1)
+MC_EFFECTIVE = date(2020, 1, 1)
 
 XERO_MAPPINGS_MC: list[dict] = [
     {"src": "Sales",                  "tgt": "REV-SALES",        "multiplier": -1.0, "notes": "IC elimination: MC mgmt fee"},
@@ -257,13 +257,12 @@ async def seed():
 
         # ── 5. Xero mappings for MC ──────────────────────────────────────
         result = await db.execute(
-            select(Entity).where(Entity.code == "MOD")
+            select(Entity).where(Entity.code == "MC")
         )
         mc_entity = result.scalar_one_or_none()
 
         xero_count = 0
         if mc_entity:
-            effective = mc_entity.acquisition_date or MC_EFFECTIVE
             for m in XERO_MAPPINGS_MC:
                 target_id = acct_map.get(m["tgt"])
                 if target_id is None:
@@ -274,13 +273,13 @@ async def seed():
                     source_account_code=m["src"],
                     target_account_id=target_id,
                     multiplier=m.get("multiplier", 1.0),
-                    effective_from=effective,
+                    effective_from=MC_EFFECTIVE,
                     notes=m.get("notes"),
                 ))
                 xero_count += 1
-            print(f"Inserted {xero_count} Xero mappings for MOD (Modulus Capital)")
+            print(f"Inserted {xero_count} Xero mappings for MC (Modulus Capital)")
         else:
-            print("WARNING: MOD entity not found — skipping Xero mappings")
+            print("WARNING: MC entity not found — skipping Xero mappings")
 
         await db.commit()
         print("Done.")
