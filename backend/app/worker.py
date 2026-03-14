@@ -145,3 +145,17 @@ def _trigger_auto_consolidation(fy_year: int, fy_month: int):
             "Failed to queue auto-consolidation for FY%dM%02d",
             fy_year, fy_month,
         )
+
+
+# ── Budget model tasks ────────────────────────────────────────────────────────
+
+
+@celery_app.task(name="app.worker.run_model_task", bind=True)
+def run_model_task(self, version_id: str):
+    """Run the full budget model engine for a version."""
+    import uuid as _uuid
+
+    from app.services.model_engine import run_model
+
+    vid = _uuid.UUID(version_id)
+    return asyncio.run(run_model(vid))

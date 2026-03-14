@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import admin, auth, auth_xero, consolidation, dashboard, entities, health, sync
+from app.api import admin, auth, auth_xero, budget, consolidation, dashboard, entities, health, sync
 from app.core.config import settings
 
 app = FastAPI(title=settings.PROJECT_NAME, version=settings.VERSION)
@@ -22,3 +22,4 @@ app.include_router(auth_xero.router, prefix=settings.API_V1_PREFIX)
 app.include_router(consolidation.router, prefix=settings.API_V1_PREFIX)
 app.include_router(entities.router, prefix=settings.API_V1_PREFIX)
 app.include_router(dashboard.router, prefix=settings.API_V1_PREFIX)
+app.include_router(budget.router, prefix=settings.API_V1_PREFIX)
