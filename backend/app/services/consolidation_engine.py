@@ -17,6 +17,7 @@ from app.db.models.consolidation import (
     ConsolidatedActual,
     ConsolidationRun,
     ConsolidationStatus,
+    ICEliminationRule,
 )
 from app.db.models.entity import Entity
 from app.db.models.period import Period
@@ -28,8 +29,16 @@ IC_TOLERANCE = Decimal("10.00")
 BS_TOLERANCE = Decimal("1.00")
 
 
-async def consolidate_period(fy_year: int, fy_month: int) -> uuid.UUID:
+async def consolidate_period(
+    fy_year: int,
+    fy_month: int,
+    include_aasb16: bool = True,
+) -> uuid.UUID:
     """Run full consolidation for a single period.
+
+    Args:
+        include_aasb16: When False, je_lines with is_aasb16=True are excluded
+                        (producing an "ex-lease" view).
 
     Steps:
       1. Fetch je_lines for all active entities
@@ -81,12 +90,13 @@ async def consolidate_period(fy_year: int, fy_month: int) -> uuid.UUID:
             entity_ids = {e.id for e in entities}
 
             # ── Step 1: Fetch all je_lines for this period ───────────────
-            result = await db.execute(
-                select(JeLine).where(
-                    JeLine.period_id == period.id,
-                    JeLine.entity_id.in_(entity_ids),
-                )
+            je_query = select(JeLine).where(
+                JeLine.period_id == period.id,
+                JeLine.entity_id.in_(entity_ids),
             )
+            if not include_aasb16:
+                je_query = je_query.where(JeLine.is_aasb16.is_(False))
+            result = await db.execute(je_query)
             je_lines = result.scalars().all()
             logger.info(
                 "Consolidating FY%dM%02d: %d je_lines across %d entities",
@@ -130,43 +140,37 @@ async def consolidate_period(fy_year: int, fy_month: int) -> uuid.UUID:
             if unmapped_count:
                 logger.warning("%d je_lines had no account mapping", unmapped_count)
 
-            # ── Step 3: IC elimination check ─────────────────────────────
+            # ── Step 3: IC elimination check (rules-driven) ─────────────
             ic_alerts: list[str] = []
 
-            mc_sales = Decimal("0")
-            sh_62300 = Decimal("0")
-            for eid, amounts in entity_amounts.items():
-                for code, amt in amounts.items():
-                    pass
+            result = await db.execute(
+                select(ICEliminationRule).where(ICEliminationRule.is_active.is_(True))
+            )
+            ic_rules = result.scalars().all()
 
-            for m in all_mappings:
-                if m.multiplier and Decimal(str(m.multiplier)) == Decimal("-1"):
-                    eid = m.entity_id
-                    src = m.source_account_code
-                    if eid in entity_amounts and src in [
-                        jl.source_account_code for jl in je_lines if jl.entity_id == eid
-                    ]:
-                        for jl in je_lines:
-                            if jl.entity_id == eid and jl.source_account_code == src:
-                                mc_sales += Decimal(str(jl.amount)) * Decimal(str(m.multiplier))
-
+            je_by_entity_code: dict[tuple[uuid.UUID, str], Decimal] = {}
             for jl in je_lines:
-                if jl.source_account_code == "62300":
-                    sh_62300 += Decimal(str(jl.amount))
+                key = (jl.entity_id, jl.source_account_code)
+                je_by_entity_code[key] = je_by_entity_code.get(key, Decimal("0")) + Decimal(str(jl.amount))
 
-            if mc_sales != Decimal("0") or sh_62300 != Decimal("0"):
-                ic_net = mc_sales + sh_62300
-                if abs(ic_net) > IC_TOLERANCE:
+            for rule in ic_rules:
+                side_a = je_by_entity_code.get((rule.entity_a_id, rule.account_code_a), Decimal("0"))
+                side_b = je_by_entity_code.get((rule.entity_b_id, rule.account_code_b), Decimal("0"))
+                ic_net = side_a + side_b
+                tol = Decimal(str(rule.tolerance))
+
+                if abs(ic_net) > tol:
                     alert = (
-                        f"IC imbalance: MC Sales (mapped)={mc_sales}, "
-                        f"SH 62300={sh_62300}, net={ic_net} (tolerance={IC_TOLERANCE})"
+                        f"IC imbalance [{rule.label}]: "
+                        f"side_a={side_a}, side_b={side_b}, "
+                        f"net={ic_net} (tolerance={tol})"
                     )
                     ic_alerts.append(alert)
                     logger.warning(alert)
-                else:
+                elif side_a != Decimal("0") or side_b != Decimal("0"):
                     logger.info(
-                        "IC elimination OK: MC Sales=%s, SH 62300=%s, net=%s",
-                        mc_sales, sh_62300, ic_net,
+                        "IC OK [%s]: side_a=%s, side_b=%s, net=%s",
+                        rule.label, side_a, side_b, ic_net,
                     )
 
             # ── Step 4: Aggregate to group totals ────────────────────────
@@ -176,9 +180,11 @@ async def consolidate_period(fy_year: int, fy_month: int) -> uuid.UUID:
                     group_amounts[code] += amt
 
             # ── Step 5: Write consolidated_actuals ───────────────────────
+            # FIX(C4): only delete rows matching this AASB16 mode, not all views
             await db.execute(
                 delete(ConsolidatedActual).where(
                     ConsolidatedActual.period_id == period.id,
+                    ConsolidatedActual.include_aasb16 == include_aasb16,
                 )
             )
 
@@ -196,6 +202,7 @@ async def consolidate_period(fy_year: int, fy_month: int) -> uuid.UUID:
                         entity_id=eid,
                         amount=float(amt),
                         is_group_total=False,
+                        include_aasb16=include_aasb16,
                         calculated_at=now,
                     ))
                     rows_written += 1
@@ -210,6 +217,7 @@ async def consolidate_period(fy_year: int, fy_month: int) -> uuid.UUID:
                     entity_id=None,
                     amount=float(amt),
                     is_group_total=True,
+                    include_aasb16=include_aasb16,
                     calculated_at=now,
                 ))
                 rows_written += 1
@@ -224,8 +232,13 @@ async def consolidate_period(fy_year: int, fy_month: int) -> uuid.UUID:
                 total = Decimal("0")
                 for c in add_codes:
                     total += group_amounts.get(c, Decimal("0"))
+
+                is_pl = acct.statement and acct.statement.value == "is"
                 for c in sub_codes:
-                    total -= group_amounts.get(c, Decimal("0"))
+                    if is_pl:
+                        total += group_amounts.get(c, Decimal("0"))
+                    else:
+                        total -= group_amounts.get(c, Decimal("0"))
 
                 group_amounts[acct.code] = total
 
@@ -234,6 +247,7 @@ async def consolidate_period(fy_year: int, fy_month: int) -> uuid.UUID:
                         ConsolidatedActual.period_id == period.id,
                         ConsolidatedActual.account_id == acct.id,
                         ConsolidatedActual.is_group_total.is_(True),
+                        ConsolidatedActual.include_aasb16 == include_aasb16,
                     )
                 )
                 existing_row = result2.scalar_one_or_none()
@@ -246,6 +260,7 @@ async def consolidate_period(fy_year: int, fy_month: int) -> uuid.UUID:
                         entity_id=None,
                         amount=float(total),
                         is_group_total=True,
+                        include_aasb16=include_aasb16,
                         calculated_at=now,
                     ))
                     rows_written += 1
@@ -299,9 +314,22 @@ async def consolidate_period(fy_year: int, fy_month: int) -> uuid.UUID:
 
         except Exception as exc:
             logger.exception("Consolidation failed FY%dM%02d", fy_year, fy_month)
-            run.status = ConsolidationStatus.failed
-            run.error_detail = str(exc)[:2000]
-            run.completed_at = datetime.now(timezone.utc)
-            await db.commit()
+            # FIX(C5): rollback first so the DELETE + partial inserts are not persisted
+            await db.rollback()
+
+        # Record failure in a separate transaction so corrupt data is never committed
+        if run.status == ConsolidationStatus.running:
+            async with async_session_factory() as err_db:
+                err_db.add(ConsolidationRun(
+                    id=run_id,
+                    period_id=run.period_id,
+                    status=ConsolidationStatus.failed,
+                    error_detail=str(exc)[:2000],
+                    completed_at=datetime.now(timezone.utc),
+                ))
+                try:
+                    await err_db.commit()
+                except Exception:
+                    logger.exception("Failed to record consolidation error")
 
     return run_id

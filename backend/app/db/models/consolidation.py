@@ -8,6 +8,7 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Numeric,
+    String,
     Text,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -43,6 +44,26 @@ class ConsolidatedActual(Base):
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
     )
+
+
+class ICEliminationRule(Base):
+    __tablename__ = "ic_elimination_rules"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+    entity_a_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("entities.id"), nullable=False
+    )
+    account_code_a: Mapped[str] = mapped_column(String(100), nullable=False)
+    entity_b_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("entities.id"), nullable=False
+    )
+    account_code_b: Mapped[str] = mapped_column(String(100), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    tolerance: Mapped[float] = mapped_column(Numeric(18, 2), default=10.00)
+    notes: Mapped[str | None] = mapped_column(Text)
 
 
 class ConsolidationRun(Base):

@@ -150,6 +150,11 @@ async def _run_model_inner(db: AsyncSession, version_id: uuid.UUID) -> dict:
                 if pp:
                     prior_actuals[(acct.code, pp.fy_month)] = D(str(act.amount))
 
+    # FIX(C3): sum all prior-year months to get closing balances, not just month 12 activity
+    prior_closing: dict[str, Decimal] = {}
+    for (code, _month), amt in prior_actuals.items():
+        prior_closing[code] = prior_closing.get(code, ZERO) + amt
+
     # ── Storage: outputs[(account_code, period_id)] = Decimal ─────────────
     outputs: dict[tuple[str, uuid.UUID], Decimal] = {}
     entity_outputs: dict[tuple[str, uuid.UUID, uuid.UUID], Decimal] = {}
@@ -160,8 +165,9 @@ async def _run_model_inner(db: AsyncSession, version_id: uuid.UUID) -> dict:
             key_growth = f"revenue.{entity.code}.growth_rate"
             key_manual = f"revenue.{entity.code}.manual"
 
+            # FIX(C2): site rollup stores monthly values as {"1": 12000, ...} with "value" always 0
             manual_val = _get_assumption(
-                assumptions, key_manual, entity.id, "value"
+                assumptions, key_manual, entity.id, str(period.fy_month)
             )
             if manual_val != ZERO:
                 rev = manual_val
@@ -346,7 +352,7 @@ async def _run_model_inner(db: AsyncSession, version_id: uuid.UUID) -> dict:
         outputs[("CF-NET", period.id)] = net_cf
 
         if idx == 0:
-            opening_cash = prior_actuals.get(("BS-CASH", 12), ZERO)
+            opening_cash = prior_closing.get("BS-CASH", ZERO)
         else:
             opening_cash = outputs.get(("BS-CASH", periods[idx - 1].id), ZERO)
 
@@ -356,8 +362,8 @@ async def _run_model_inner(db: AsyncSession, version_id: uuid.UUID) -> dict:
     # ── STEP 10: BALANCE SHEET ───────────────────────────────────────────
     for idx, period in enumerate(periods):
         if idx == 0:
-            prior_ppe = prior_actuals.get(("BS-PPE", 12), ZERO)
-            prior_re = prior_actuals.get(("BS-RETAINEDEARNINGS", 12), ZERO)
+            prior_ppe = prior_closing.get("BS-PPE", ZERO)
+            prior_re = prior_closing.get("BS-RETAINEDEARNINGS", ZERO)
         else:
             prior_ppe = outputs.get(("BS-PPE", periods[idx - 1].id), ZERO)
             prior_re = outputs.get(

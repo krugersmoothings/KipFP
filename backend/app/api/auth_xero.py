@@ -34,11 +34,14 @@ async def xero_connect(
 @router.get("/callback")
 async def xero_callback(
     code: str = Query(...),
-    state: str = Query(""),
+    # FIX(C6): state was optional+empty-default, allowing CSRF bypass
+    state: str = Query(...),
     db: AsyncSession = Depends(get_db),
+    # FIX(C7): callback had no auth — anyone could overwrite Xero credentials
+    _user: User = Depends(require_admin),
 ):
     """Handle Xero OAuth callback — store refresh token and tenant ID."""
-    if state and state not in _oauth_states:
+    if state not in _oauth_states:
         raise HTTPException(status_code=400, detail="Invalid OAuth state")
     _oauth_states.pop(state, None)
 
