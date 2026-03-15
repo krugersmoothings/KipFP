@@ -12,7 +12,7 @@ import {
   Cell,
   ReferenceLine,
 } from "recharts";
-import { Download, Loader2, AlertTriangle, AlertCircle, Building2, DollarSign, TrendingUp, MapPin } from "lucide-react";
+import { Download, Loader2, AlertTriangle, Building2, DollarSign, TrendingUp, MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePeriodStore } from "@/stores/period";
 import { useAppStore } from "@/stores/app";
@@ -58,12 +58,9 @@ function SparkLine({ data }: { data: LocationTimeSeriesPoint[] }) {
 
 export default function LocationPerformance() {
   const navigate = useNavigate();
-  const { fyYear, fyMonth, dataPreparedToFyYear, dataPreparedToFyMonth } = usePeriodStore();
+  const { fyYear, fyMonth } = usePeriodStore();
   const { includeAasb16 } = useAppStore();
 
-  const beyondPreparedTo =
-    fyYear > dataPreparedToFyYear ||
-    (fyYear === dataPreparedToFyYear && fyMonth > dataPreparedToFyMonth);
   const [useFullYear, setUseFullYear] = useState(false);
   const [versionId, setVersionId] = useState<string | null>(null);
   const [stateFilter, setStateFilter] = useState<Set<string>>(new Set());
@@ -84,9 +81,11 @@ export default function LocationPerformance() {
 
   // Load budget versions for comparison selector
   const { data: versions } = useQuery<BudgetVersion[]>({
-    queryKey: ["budget-versions"],
+    queryKey: ["budget-versions", fyYear],
     queryFn: async () => {
-      const res = await api.get("/api/v1/budget/versions");
+      const res = await api.get("/api/v1/budgets/", {
+        params: { fy_year: fyYear },
+      });
       return res.data;
     },
   });
@@ -262,13 +261,6 @@ export default function LocationPerformance() {
           {filterAdverse && <p className="mt-1 text-xs text-primary">Filtering active</p>}
         </button>
       </div>
-
-      {beyondPreparedTo && (
-        <div className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          Data is prepared up to M{String(dataPreparedToFyMonth).padStart(2, "0")} FY{dataPreparedToFyYear} — the selected period may have incomplete data.
-        </div>
-      )}
 
       {/* Controls */}
       <div className="flex flex-wrap items-center gap-4 rounded-lg border bg-card p-4">

@@ -79,9 +79,7 @@ function loadPreparedTo(): { year: number; month: number } {
       if (parsed.year && parsed.month) return parsed;
     }
   } catch { /* ignore */ }
-  const prevMonth = defaultFyMonth > 1 ? defaultFyMonth - 1 : 12;
-  const prevYear = defaultFyMonth > 1 ? defaultFyYear : defaultFyYear - 1;
-  return { year: prevYear, month: prevMonth };
+  return { year: defaultFyYear, month: defaultFyMonth };
 }
 
 const savedPreparedTo = loadPreparedTo();
@@ -105,7 +103,10 @@ export const usePeriodStore = create<PeriodState>((set) => ({
 
   setFyYear: (fyYear) => set({ fyYear }),
   setFyMonth: (fyMonth) => set({ fyMonth }),
-  setPeriod: (fyYear, fyMonth) => set({ fyYear, fyMonth }),
+  setPeriod: (fyYear, fyMonth) => {
+    localStorage.setItem("kip_data_prepared_to", JSON.stringify({ year: fyYear, month: fyMonth }));
+    set({ fyYear, fyMonth, dataPreparedToFyYear: fyYear, dataPreparedToFyMonth: fyMonth });
+  },
   setDataPreparedTo: (year, month) => {
     localStorage.setItem("kip_data_prepared_to", JSON.stringify({ year, month }));
     set({ dataPreparedToFyYear: year, dataPreparedToFyMonth: month });

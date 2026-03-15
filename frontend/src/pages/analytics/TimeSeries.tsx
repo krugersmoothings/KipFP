@@ -11,12 +11,12 @@ import {
   ReferenceLine,
   ResponsiveContainer,
 } from "recharts";
-import { Download, Loader2, AlertCircle } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePeriodStore } from "@/stores/period";
 import { useAppStore } from "@/stores/app";
 import api from "@/utils/api";
-import type { TimeSeriesPoint, MultiTimeSeriesResponse } from "@/types/api";
+import type { EntityRead, TimeSeriesPoint, MultiTimeSeriesResponse } from "@/types/api";
 
 type Metric = "revenue" | "gm" | "ebitda" | "npat";
 type ViewMode = "chart" | "table" | "both";
@@ -28,11 +28,6 @@ const METRIC_CONFIG: Record<Metric, { label: string; color: string; priorColor: 
   npat: { label: "NPAT", color: "#ea580c", priorColor: "#fdba74" },
 };
 
-const ENTITIES = [
-  { code: "SH", label: "SH" },
-  { code: "KPT", label: "KPT" },
-  { code: "MC", label: "MC" },
-];
 
 const now = new Date();
 const calMonth = now.getMonth() + 1;
@@ -57,16 +52,17 @@ export default function TimeSeries() {
   const [entityFilter, setEntityFilter] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
 
+  const { data: entities } = useQuery<EntityRead[]>({
+    queryKey: ["entities"],
+    queryFn: async () => (await api.get("/api/v1/entities")).data,
+  });
+
   // Default "from" to 24 months before the data-prepared-to period
   const defaultFromFy = dataPreparedToFyMonth <= 12 ? dataPreparedToFyYear - 2 : dataPreparedToFyYear - 1;
   const [fromFyYear, setFromFyYear] = useState(defaultFromFy);
   const [fromFyMonth, setFromFyMonth] = useState(dataPreparedToFyMonth);
   const [toFyYear, setToFyYear] = useState(dataPreparedToFyYear);
   const [toFyMonth, setToFyMonth] = useState(dataPreparedToFyMonth);
-
-  const beyondPreparedTo =
-    toFyYear > dataPreparedToFyYear ||
-    (toFyYear === dataPreparedToFyYear && toFyMonth > dataPreparedToFyMonth);
 
   const toggleMetric = (m: Metric) => {
     setSelectedMetrics((prev) => {
@@ -80,11 +76,11 @@ export default function TimeSeries() {
     });
   };
 
-  const toggleEntity = (code: string) => {
+  const toggleEntity = (id: string) => {
     setEntityFilter((prev) => {
       const next = new Set(prev);
-      if (next.has(code)) next.delete(code);
-      else next.add(code);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
   };
@@ -316,17 +312,17 @@ export default function TimeSeries() {
             >
               All
             </button>
-            {ENTITIES.map((e) => (
+            {entities?.map((e) => (
               <button
-                key={e.code}
-                onClick={() => toggleEntity(e.code)}
+                key={e.id}
+                onClick={() => toggleEntity(e.id)}
                 className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                  entityFilter.has(e.code)
+                  entityFilter.has(e.id)
                     ? "bg-primary text-primary-foreground"
                     : "border bg-background text-muted-foreground hover:bg-accent"
                 }`}
               >
-                {e.label}
+                {e.code}
               </button>
             ))}
           </div>
@@ -386,13 +382,6 @@ export default function TimeSeries() {
           </div>
         </div>
       </div>
-
-      {beyondPreparedTo && (
-        <div className="flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          Data is prepared up to M{String(dataPreparedToFyMonth).padStart(2, "0")} FY{dataPreparedToFyYear} — periods beyond this may be incomplete or empty.
-        </div>
-      )}
 
       {isLoading && (
         <div className="flex items-center justify-center py-12">
