@@ -22,10 +22,12 @@ import {
   TrendingUp,
   GitBranch,
   BookOpen,
+  Wallet,
 } from "lucide-react";
 import { useAuthStore } from "@/stores/auth";
 import { Button } from "@/components/ui/button";
 import PeriodSelector from "@/components/PeriodSelector";
+import Aasb16Toggle from "@/components/Aasb16Toggle";
 import type { UserRole } from "@/types/api";
 
 interface NavItem {
@@ -65,6 +67,8 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { label: "Consolidated P&L", to: "/actuals/consolidated", icon: <FileText className={iconClass} /> },
       { label: "Balance Sheet", to: "/actuals/bs", icon: <FileSpreadsheet className={iconClass} /> },
+      { label: "Actuals + Forecast", to: "/actuals/blended", icon: <TrendingUp className={iconClass} />, minRole: "finance" as UserRole },
+      { label: "Cash Flow", to: "/actuals/cashflow", icon: <Wallet className={iconClass} />, minRole: "finance" as UserRole },
       { label: "Sync Status", to: "/actuals/sync", icon: <RefreshCw className={iconClass} />, minRole: "finance" },
     ],
   },
@@ -75,9 +79,18 @@ const NAV_GROUPS: NavGroup[] = [
       { label: "Working Capital", to: "/budget/wc", icon: <Droplets className={iconClass} />, minRole: "finance" as UserRole },
       { label: "Debt Schedule", to: "/budget/debt", icon: <Landmark className={iconClass} />, minRole: "finance" as UserRole },
       { label: "Site Budgets", to: "/budget/sites", icon: <MapPin className={iconClass} />, minRole: "finance" as UserRole },
+      { label: "Site Overview", to: "/budget/sites/overview", icon: <BarChart3 className={iconClass} />, minRole: "finance" as UserRole },
+      { label: "Site Setup", to: "/budget/sites/setup", icon: <Settings2 className={iconClass} />, minRole: "finance" as UserRole },
       { label: "Output", to: "/budget/output", icon: <BarChart3 className={iconClass} />, minRole: "finance" as UserRole },
       { label: "Variance", to: "/variance", icon: <TrendingUp className={iconClass} />, minRole: "finance" as UserRole },
       { label: "Scenarios", to: "/scenarios", icon: <GitBranch className={iconClass} />, minRole: "finance" as UserRole },
+    ],
+  },
+  {
+    title: "Analytics",
+    items: [
+      { label: "Time Series", to: "/analytics/timeseries", icon: <TrendingUp className={iconClass} /> },
+      { label: "Location Performance", to: "/analytics/locations", icon: <MapPin className={iconClass} /> },
     ],
   },
   {
@@ -225,6 +238,7 @@ export default function AppLayout() {
             <Menu className="h-5 w-5" />
           </button>
           <PeriodSelector />
+          <Aasb16Toggle />
           <div className="flex-1" />
           <span className="hidden text-sm text-muted-foreground sm:inline">
             {user?.email}

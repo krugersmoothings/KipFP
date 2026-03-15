@@ -22,6 +22,12 @@ import VariancePage from "@/pages/reports/Variance";
 import ScenarioList from "@/pages/scenarios/ScenarioList";
 import ScenarioCompare from "@/pages/scenarios/ScenarioCompare";
 import CoaMapping from "@/pages/admin/CoaMapping";
+import BlendedPL from "@/pages/financials/BlendedPL";
+import CashFlow from "@/pages/financials/CashFlow";
+import TimeSeries from "@/pages/analytics/TimeSeries";
+import LocationPerformance from "@/pages/analytics/LocationPerformance";
+import SiteSetup from "@/pages/budget/SiteSetup";
+import SiteWeeklyGrid from "@/pages/budget/SiteWeeklyGrid";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
@@ -63,6 +69,12 @@ export default function App() {
           {/* Actuals — consolidated financials */}
           <Route path="actuals/consolidated" element={<IncomeStatement />} />
           <Route path="actuals/bs" element={<BalanceSheet />} />
+          <Route path="actuals/blended" element={
+            <RoleGuard minRole="finance"><BlendedPL /></RoleGuard>
+          } />
+          <Route path="actuals/cashflow" element={
+            <RoleGuard minRole="finance"><CashFlow /></RoleGuard>
+          } />
           <Route
             path="actuals/sync"
             element={
@@ -113,6 +125,22 @@ export default function App() {
               </RoleGuard>
             }
           />
+          <Route
+            path="budget/sites/setup"
+            element={
+              <RoleGuard minRole="finance">
+                <SiteSetup />
+              </RoleGuard>
+            }
+          />
+          <Route
+            path="budget/sites/overview"
+            element={
+              <RoleGuard minRole="finance">
+                <SiteWeeklyGrid />
+              </RoleGuard>
+            }
+          />
 
           {/* Variance & Scenarios — finance+ */}
           <Route
@@ -146,6 +174,24 @@ export default function App() {
             element={
               <RoleGuard minRole="admin">
                 <CoaMapping />
+              </RoleGuard>
+            }
+          />
+
+          {/* Analytics — all roles */}
+          <Route
+            path="analytics/timeseries"
+            element={
+              <RoleGuard minRole="viewer">
+                <TimeSeries />
+              </RoleGuard>
+            }
+          />
+          <Route
+            path="analytics/locations"
+            element={
+              <RoleGuard minRole="viewer">
+                <LocationPerformance />
               </RoleGuard>
             }
           />

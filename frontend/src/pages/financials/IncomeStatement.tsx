@@ -1,23 +1,28 @@
 import { useState, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, ToggleLeft, ToggleRight, Download } from "lucide-react";
+import { Loader2, Download, Building2, Calendar } from "lucide-react";
 import api from "@/utils/api";
 import { usePeriodStore } from "@/stores/period";
 import { Button } from "@/components/ui/button";
 import FinancialTable from "@/components/FinancialTable";
+import type { CellClickInfo } from "@/components/FinancialTable";
+import DrillDownModal from "@/components/DrillDownModal";
 import type { FinancialStatementResponse } from "@/types/api";
+
+type ViewMode = "period" | "entity";
 
 export default function IncomeStatement() {
   const { fyYear, fyMonth } = usePeriodStore();
-  const [showBreakdown, setShowBreakdown] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("period");
   const [exporting, setExporting] = useState(false);
+  const [drillDown, setDrillDown] = useState<CellClickInfo | null>(null);
 
   const { data, isLoading, error, refetch } = useQuery<FinancialStatementResponse>({
-    queryKey: ["consolidated-is", fyYear, fyMonth],
+    queryKey: ["consolidated-is", fyYear, fyMonth, viewMode],
     queryFn: async () => {
-      const res = await api.get("/api/v1/consolidated/is", {
-        params: { fy_year: fyYear, fy_month: fyMonth },
-      });
+      const params: Record<string, unknown> = { fy_year: fyYear, fy_month: fyMonth };
+      if (viewMode === "entity") params.group_by = "entity";
+      const res = await api.get("/api/v1/consolidated/is", { params });
       return res.data;
     },
   });
@@ -43,6 +48,10 @@ export default function IncomeStatement() {
     }
   }, [fyYear]);
 
+  const handleCellClick = useCallback((info: CellClickInfo) => {
+    setDrillDown(info);
+  }, []);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -51,7 +60,8 @@ export default function IncomeStatement() {
             Consolidated Income Statement
           </h1>
           <p className="text-muted-foreground">
-            FY{fyYear} &middot; M{String(fyMonth).padStart(2, "0")} + YTD
+            FY{fyYear} &middot; to M{String(fyMonth).padStart(2, "0")}
+            {viewMode === "period" ? " — Monthly + YTD vs Budget" : " — By Entity"}
           </p>
         </div>
         <div className="flex gap-2">
@@ -68,18 +78,28 @@ export default function IncomeStatement() {
             )}
             Export Excel
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowBreakdown((b) => !b)}
-          >
-            {showBreakdown ? (
-              <ToggleRight className="mr-2 h-4 w-4 text-primary" />
-            ) : (
-              <ToggleLeft className="mr-2 h-4 w-4" />
-            )}
-            Entity Breakdown
-          </Button>
+          <div className="flex rounded-md border">
+            <button
+              onClick={() => setViewMode("period")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
+                viewMode === "period"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              } rounded-l-md`}
+            >
+              <Calendar className="h-3.5 w-3.5" /> By Period
+            </button>
+            <button
+              onClick={() => setViewMode("entity")}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${
+                viewMode === "entity"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              } rounded-r-md`}
+            >
+              <Building2 className="h-3.5 w-3.5" /> By Entity
+            </button>
+          </div>
         </div>
       </div>
 
@@ -107,8 +127,9 @@ export default function IncomeStatement() {
         <FinancialTable
           rows={data.rows}
           periods={data.periods}
-          showEntityBreakdown={showBreakdown}
-          highlightVariance
+          showEntityBreakdown={false}
+          highlightVariance={viewMode === "period"}
+          onCellClick={handleCellClick}
         />
       )}
 
@@ -117,6 +138,15 @@ export default function IncomeStatement() {
           No income statement data available for this period. Run a
           consolidation first.
         </div>
+      )}
+
+      {drillDown && (
+        <DrillDownModal
+          info={drillDown}
+          fyYear={fyYear}
+          fyMonth={fyMonth}
+          onClose={() => setDrillDown(null)}
+        />
       )}
     </div>
   );

@@ -2,12 +2,21 @@ import { useState, useCallback } from "react";
 import { ChevronRight, ChevronDown } from "lucide-react";
 import type { FinancialRow } from "@/types/api";
 
+export interface CellClickInfo {
+  accountCode: string;
+  accountLabel: string;
+  period: string;
+  value: number;
+}
+
 interface Props {
   rows: FinancialRow[];
   periods: string[];
   showEntityBreakdown?: boolean;
   highlightVariance?: boolean;
   compact?: boolean;
+  lastActualMonth?: number;
+  onCellClick?: (info: CellClickInfo) => void;
 }
 
 function fmtAUD(n: number): string {
@@ -16,13 +25,31 @@ function fmtAUD(n: number): string {
   return n < 0 ? `(${formatted})` : formatted;
 }
 
+function fmtPct(n: number): string {
+  const abs = Math.abs(n);
+  const formatted = abs.toFixed(1) + "%";
+  return n < 0 ? `(${formatted})` : formatted;
+}
+
+const SUMMARY_COLUMNS = new Set(["YTD", "YTD Budget", "Var %"]);
+
+const MONTH_ABBR = ["Jul", "Aug", "Sep", "Oct", "Nov", "Dec", "Jan", "Feb", "Mar", "Apr", "May", "Jun"];
+
 export default function FinancialTable({
   rows,
   periods,
   showEntityBreakdown = false,
   highlightVariance = false,
   compact = false,
+  lastActualMonth,
+  onCellClick,
 }: Props) {
+  const forecastPeriods = new Set<string>();
+  if (lastActualMonth != null) {
+    for (let m = lastActualMonth; m < 12; m++) {
+      forecastPeriods.add(MONTH_ABBR[m]);
+    }
+  }
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const toggle = useCallback((code: string) => {
@@ -47,14 +74,20 @@ export default function FinancialTable({
             >
               Account
             </th>
-            {periods.map((p) => (
-              <th
-                key={p}
-                className={`${headerPad} text-right font-medium whitespace-nowrap min-w-[100px]`}
-              >
-                {p}
-              </th>
-            ))}
+            {periods.map((p) => {
+              const isForecast = lastActualMonth != null && forecastPeriods.has(p.split("-")[0]);
+              const isSummary = SUMMARY_COLUMNS.has(p);
+              return (
+                <th
+                  key={p}
+                  className={`${headerPad} text-right font-medium whitespace-nowrap min-w-[100px] ${
+                    isForecast ? "text-blue-600 dark:text-blue-400" : ""
+                  } ${isSummary ? "bg-muted/80 border-l" : ""}`}
+                >
+                  {p}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
@@ -88,6 +121,7 @@ export default function FinancialTable({
                 onToggle={toggle}
                 highlightVariance={highlightVariance}
                 cellPad={cellPad}
+                onCellClick={onCellClick}
               />
             );
           })}
@@ -107,6 +141,7 @@ interface RowGroupProps {
   onToggle: (code: string) => void;
   highlightVariance: boolean;
   cellPad: string;
+  onCellClick?: (info: CellClickInfo) => void;
 }
 
 function RowGroup({
@@ -117,6 +152,7 @@ function RowGroup({
   onToggle,
   highlightVariance,
   cellPad,
+  onCellClick,
 }: RowGroupProps) {
   const subtotalCls = row.is_subtotal
     ? "bg-muted/30 font-semibold border-t"
@@ -124,6 +160,8 @@ function RowGroup({
   const indent = row.indent_level > 0 ? "pl-6" : "";
 
   const entityCodes = Object.keys(row.entity_breakdown).sort();
+
+  const clickable = !!onCellClick && !row.is_subtotal && !!row.account_code;
 
   return (
     <>
@@ -156,14 +194,32 @@ function RowGroup({
         </td>
         {periods.map((p) => {
           const val = row.values[p] ?? 0;
+          const isPct = p === "Var %";
+          const isSummary = SUMMARY_COLUMNS.has(p);
+          const colorCls = isPct
+            ? val < 0 ? "text-red-600" : val > 0 ? "text-emerald-600" : ""
+            : val < 0 && highlightVariance ? "text-red-600" : "";
           return (
             <td
               key={p}
-              className={`${cellPad} text-right tabular-nums whitespace-nowrap ${
-                val < 0 && highlightVariance ? "text-red-600" : ""
-              }`}
+              className={`${cellPad} text-right tabular-nums whitespace-nowrap ${colorCls} ${
+                isSummary ? "bg-muted/30 border-l" : ""
+              } ${clickable && !isPct ? "cursor-pointer hover:underline hover:text-primary" : ""}`}
+              onClick={
+                clickable && !isPct
+                  ? (e) => {
+                      e.stopPropagation();
+                      onCellClick({
+                        accountCode: row.account_code,
+                        accountLabel: row.label,
+                        period: p,
+                        value: val,
+                      });
+                    }
+                  : undefined
+              }
             >
-              {fmtAUD(val)}
+              {isPct ? fmtPct(val) : fmtAUD(val)}
             </td>
           );
         })}
@@ -178,13 +234,18 @@ function RowGroup({
               {ecode}
             </td>
             {periods.map((p) => {
+              const isPct = p === "Var %";
+              const isSummary = SUMMARY_COLUMNS.has(p);
+              if (isPct) {
+                return <td key={p} className={`${cellPad} border-l bg-muted/30`} />;
+              }
               const val = row.entity_breakdown[ecode]?.[p] ?? 0;
               return (
                 <td
                   key={p}
                   className={`${cellPad} text-right tabular-nums text-muted-foreground text-xs ${
                     val < 0 ? "text-red-500" : ""
-                  }`}
+                  } ${isSummary ? "bg-muted/30 border-l" : ""}`}
                 >
                   {fmtAUD(val)}
                 </td>
