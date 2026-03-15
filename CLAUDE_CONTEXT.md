@@ -572,7 +572,7 @@ Base prefix: `/api/v1`
 | BigQuery sync | `bigquery_sync_service.py` | Sync pet days + revenue from BigQuery → `site_pet_days` |
 | Consolidation engine | `consolidation_engine.py` | Map je_lines via account_mappings, IC elimination, write consolidated_actuals, BS validation |
 | Site budget engine | `site_budget_engine.py` | Site-level operational budget from pet-day assumptions |
-| Site rollup | `site_rollup_service.py` | Roll site budgets → entity-level model_assumptions |
+| Site rollup | `site_rollup_service.py` | Roll site budgets (9 line items) → entity-level model_assumptions |
 | Model engine | `model_engine.py` | 3-statement model (IS, BS, CF) from assumptions, WC, debt, D&A, tax |
 | Debt engine | `debt_engine.py` | Debt waterfall: interest, repayment, closing balance per facility |
 | WC engine | `wc_engine.py` | Working capital schedule (DSO, DPO, DII, etc.) |
@@ -585,7 +585,7 @@ Base prefix: `/api/v1`
 |-----------|------|------|---------|
 | NetSuite | `netsuite.py` | OAuth 1.0a TBA | SuiteQL trial balance queries |
 | Xero | `xero.py` | OAuth 2.0 (stored in api_credentials) | Trial balance via Xero Reports API |
-| BigQuery | `bigquery.py` | Service account JSON | Pet days + revenue from PetBooking |
+| BigQuery | `bigquery.py` | Service account file or JSON | Pet days + revenue from PetBooking (`petbooking-com-au.pbp_petbooking_prod`). Methods: `get_pet_days()`, `get_revenue()`, `get_forward_bookings()`. Scope: `cloud-platform`. |
 
 ## 6. Celery Worker & Scheduled Tasks
 
@@ -612,7 +612,6 @@ App name: `kipfp`, broker/backend: Redis.
 | `/actuals/consolidated` | Consolidated P&L | — | Built |
 | `/actuals/bs` | Balance Sheet | — | Built |
 | `/actuals/blended` | Blended P&L (actuals + forecast) | finance | Built |
-| `/actuals/cashflow` | Cash Flow (actuals + forecast) | finance | Built |
 | `/actuals/sync` | Sync Status | finance | Built |
 | `/budget/assumptions` | Budget Assumptions (location-based; tax by subsidiary) | finance | Built |
 | `/budget/wc` | Working Capital Drivers | finance | Built |
@@ -640,7 +639,7 @@ Legacy redirects: `/financials/is` → `/actuals/consolidated`, `/financials/bs`
 | Store | State | Actions |
 |-------|-------|---------|
 | auth | `token`, `user` | `setToken`, `setUser`, `logout`, `fetchUser` |
-| period | `fyYear`, `fyMonth`, `dataPreparedToFyYear`, `dataPreparedToFyMonth` | `setFyYear`, `setFyMonth`, `setPeriod`, `setDataPreparedTo` |
+| period | `fyYear`, `fyMonth`, `dataPreparedToFyYear`, `dataPreparedToFyMonth` | `setFyYear`, `setFyMonth`, `setPeriod`, `setDataPreparedTo`. Exports helpers: `fyToCalMonth`, `fyToCalYear`, `calToFyYear`, `calToFyMonth`, `periodLabel` ("Jan-26"), `periodKey`, `parsePeriodKey`, `monthRange` |
 | app | `includeAasb16` | `setIncludeAasb16`, `toggleAasb16` |
 | budget | `activeVersionId` | `setActiveVersionId` |
 
@@ -680,7 +679,7 @@ Legacy redirects: `/financials/is` → `/actuals/consolidated`, `/financials/bs`
 | NetSuite entities (SH, KPT, NAR, etc.) | FY2024 M01–12, FY2025 M01–12, FY2026 M01–07 | All synced and consolidated |
 | Xero entity (MC) | FY2024 M01–12, FY2025 M01–12, FY2026 M01–07 | All synced and consolidated |
 | Opening balances | FY2025 M00 (cumulative TB at 30-Jun-2024) | Consolidated |
-| BigQuery pet days | Last 90 days rolling (nightly) | 38 mapped locations |
+| BigQuery pet days | FY2026 Jul 2025–Mar 2026 (8,289 rows) | 26 of 38 mapped sites have BQ data; nightly sync pulls last 90 days at 3 AM AEST. Top sites: Hanrob Heathcote (41k pd, $3M), Kip Homestead YV (31k pd, $3.5M). 132 forward booking rows across 25 sites. |
 | Periods seeded | FY2023–FY2028 | Weekly periods also seeded |
 | Locations | ~38 sites across entities | Seeded from NetSuite |
 | COA | Full IS + BS canonical chart | Multiple entity mappings |
@@ -693,8 +692,8 @@ Legacy redirects: `/financials/is` → `/actuals/consolidated`, `/financials/bs`
 |---------|-------|------|-------|
 | db | postgres:15 | 5432 | Volume: `pgdata` |
 | redis | redis:7-alpine | 6379 | |
-| backend | ./backend Dockerfile | 8000 | python:3.12-slim, uvicorn |
-| celery_worker | ./backend Dockerfile | — | Same image as backend |
+| backend | ./backend Dockerfile | 8000 | python:3.12-slim, uvicorn; mounts `./secrets:/app/secrets:ro` |
+| celery_worker | ./backend Dockerfile | — | Same image as backend; mounts `./secrets:/app/secrets:ro` |
 | celery_flower | ./backend Dockerfile | 5555 | Monitoring UI |
 | frontend | ./frontend Dockerfile | 3000 | node:20-alpine, vite dev |
 
@@ -765,7 +764,7 @@ Legacy redirects: `/financials/is` → `/actuals/consolidated`, `/financials/bs`
 | `run_rollup_and_model.py` | Runs site rollup + model calculation for a budget version |
 | `test_bigquery.py` | Tests BigQuery connectivity |
 
-## 14. Git History (last 14 commits)
+## 14. Git History (last 17 commits)
 
 ```
 abdb645 Fix broken pages, financial correctness, and remove debug code (C9-C12, H1-H3, H6, H7, H10-H11, M15)
@@ -791,19 +790,84 @@ f182e02 Phase 6: Full FY2024 sync + COA mapping fixes for all entities
 - **Uncommitted changes:** Significant uncommitted work exists across backend and frontend (see git status). Includes analytics endpoints, IC rules UI, pet days, AASB16 toggle, blended P&L, site budget engine, opening balances, BigQuery connector, and several new migrations (0007–0012).
 - **Admin entities page:** `/admin/entities` is a placeholder — no CRUD UI yet.
 - **No automated tests:** No test suite exists. `pytest` referenced in README but no test files present.
-- **Secrets directory:** `secrets/bigquery-sa.json` is untracked — ensure it stays out of git.
-- **AASB16 toggle:** Sends `include_aasb16` as a query param on every request via Axios interceptor. Backend endpoints need to respect this consistently.
+- **Secrets directory:** `secrets/bigquery-sa.json` is untracked — ensure it stays out of git. Mounted read-only at `/app/secrets` in backend and celery_worker containers. Service account: `sam-leigh-pb-proxy@petbooking-com-au.iam.gserviceaccount.com` with BigQuery User role.
+- **AASB16 toggle:** Sends `include_aasb16` as a query param on every GET request via Axios interceptor (`api.ts`). Backend endpoints respect this. **Critical:** any React Query `queryKey` for an API call affected by the toggle MUST include `includeAasb16` in the key array. The analytics timeseries endpoints use `_resolve_aasb16_for_account()` to recursively expand subtotal formulas and sum leaf-level AASB16 adjustments — this is needed because `compute_aasb16_by_account_period` only returns adjustments for leaf accounts, not KPI subtotals. **Sign convention:** For IS accounts, formula "subtract" items are ADDED (matching the consolidation engine at line 238-239 of `consolidation_engine.py`).
 - **Xero token refresh:** OAuth 2.0 tokens stored in `api_credentials`. Automatic refresh logic is in the connector but depends on valid stored credentials.
 - **Multiple file copies:** Some files appear duplicated in git status with both forward-slash and backslash paths (Windows path normalisation issue). These are the same files.
 - **Opening balances:** Stored as `fy_month=0` in je_lines with `is_opening_balance=True`. Consolidation handles M00 separately. Script `import_opening_balances.py` must be run after migration 0012 and before the BS will show correct cumulative balances.
 - **Balance sheet fix (this session):** Two bugs fixed: (1) sign convention — liabilities/equity now display as positive via per-account `_display_sign`; (2) cumulative display — BS now shows point-in-time balances via `_get_bs_statement` + `_load_all_periods_through`. Excel export also updated.
 - **Budget version management:** No UI for locking/approving versions — only draft status is used in practice.
-- **Period selector simplified:** The "Last Closed" dropdown was removed from the top bar. `setPeriod()` now syncs `dataPreparedTo` to the selected month automatically. The `beyondPreparedTo` warnings were removed from TimeSeries and LocationPerformance since the two values are always in sync.
+- **Period selector redesigned:** Two separate FY+Month dropdowns replaced with single "Jan-26" style month picker. "Last Closed Month" is now a prominent always-visible control (with lock icon, green styling). `dataPreparedToFyMonth` is the global source of truth for actuals/forecast cutoff (used by BlendedPL and CashFlow pages). The `period.ts` store exports calendar-month helpers: `fyToCalMonth`, `fyToCalYear`, `periodLabel`, `monthRange`, etc.
 - **Debt auto-seed:** The `GET /budgets/{id}/debt` endpoint auto-creates `DebtFacility` records from `BS-DEBT-*` accounts (excluding `BS-TOTALDEBT` subtotal) if the `debt_facilities` table is empty. Opening balances come from `consolidated_actuals` (group totals). Facility type is inferred from account code/name (EQUIP → equipment_loan, VEHICLE → vehicle_loan, else property_loan). Entity is determined by the entity with the highest absolute balance for that account. Historical balance data and implied amortisation are derived from consolidated_actuals movements over time.
 - **Site rollup monthly fix:** `site_rollup_service.py` was patched to handle monthly-grain entries (`week_id=None`) by reading `fy_month` from `driver_params`. Previously these entries were silently skipped.
-- **FY2026 model BS imbalance:** Model calculation produces a consistent ~$990K/mo BS imbalance (Assets vs L+E). Likely due to missing opening balance assumptions or equity accounts not yet configured for FY2026 — not caused by site budget data.
+- **Model engine fixes (C2+C3):** C2 fix: site revenue now reads monthly field `str(fy_month)` from assumption value dict instead of always-zero `"value"` field. C3 fix: BS opening balances (cash, PPE, retained earnings) now sum all prior-year months via `prior_closing` dict for cumulative closing balance, instead of reading just month 12's monthly activity.
+- **FY2026 model BS imbalance:** Model calculation produces a consistent ~$990K/mo BS imbalance (Assets vs L+E). Likely due to missing opening balance assumptions or equity accounts not yet configured for FY2026 — not caused by site budget data. C3 fix (correct cumulative BS opening) may resolve or reduce this.
+- **BigQuery connector auth:** Supports two auth methods: (1) `BIGQUERY_SA_KEY_FILE` env var pointing to a JSON key file (preferred for docker — env_file can't handle inline JSON), (2) `BIGQUERY_SERVICE_ACCOUNT_JSON` env var with inline JSON. File-based method is used in production via `./secrets/bigquery-sa.json` mounted read-only.
+- **BigQuery date handling:** BigQuery returns dates as `datetime.date` objects in some cases and strings in others. The sync service (`bigquery_sync_service.py`) converts to `datetime.date` before inserting to avoid asyncpg `toordinal` errors.
+- **Route ordering:** `annual-summary` and `bulk-assumptions` endpoints must be defined BEFORE `{location_id}` parameterised routes in `budget.py` to avoid FastAPI treating literal paths as UUID parameters.
+- **Migration 0010 enum fix:** The `pet_service_type` enum is created via raw SQL `DO $$ BEGIN CREATE TYPE ... EXCEPTION WHEN duplicate_object THEN NULL; END $$` and referenced with `postgresql.ENUM(..., create_type=False)` to avoid conflicts with SQLAlchemy model-level enum registration during Alembic runs.
+- **Sites without BigQuery data:** 12 of 38 locations have no PetBooking data (don't use the platform). These include Kip Kew, Kip Blackburn, Kip Bayswater, Kip Brunswick, Kip Fairfield, Kip Alexandria, Kip Broadview, Kip West Hindmarsh, Kip Newtown, Kip Thomastown, Kip Newstead, Kip Hobart. Their budget assumptions auto-populate with defaults ($0 prior year avg price, 0 pet days) and need manual entry or alternative data sources.
+- **Full bug audit:** `BUGS.md` contains a comprehensive 115-issue audit (12 Critical, 22 High, 45 Medium, 36 Low). Fixes applied so far are tracked below.
 
-## 16. Balance Sheet Architecture
+## 16. Bug Fix Tracker
+
+Fixes are tracked against `BUGS.md` audit IDs. C = Critical, H = High, M = Medium, L = Low.
+
+### Fixed (committed)
+
+| ID | Summary | Commit |
+|----|---------|--------|
+| C1 | SECRET_KEY default removed, now required | 16f7aca |
+| C2 | Model engine reads monthly values, not `"value"` key | 16f7aca |
+| C3 | BS opening balances use cumulative balance, not monthly activity | 16f7aca |
+| C4 | Consolidation deletes only for matching `include_aasb16` flag | 16f7aca |
+| C5 | Consolidation uses savepoint; no commit on failure | 16f7aca |
+| C6 | Xero OAuth CSRF state enforced (never bypassed) | 16f7aca |
+| C7 | Xero OAuth callback requires `require_admin` | 16f7aca |
+| C8 | AASB16 interceptor only injects on GET params, not POST body | 16f7aca |
+| C9 | BlendedPL + LocationPerformance URL fixed to `/api/v1/budgets/` | abdb645 |
+| C10 | TriggerSync sends `fy_year`/`fy_month` in POST body | abdb645 |
+| C11 | TimeSeries entity filter fetches from API, sends UUIDs | abdb645 |
+| C12 | `fetchUser()` called after login before navigate | abdb645 |
+| H1 | `is_favourable` uses `actual < budget` (credit-normal correct) | abdb645 |
+| H2 | Variance export applies `sign = -1.0` for IS accounts | abdb645 |
+| H3 | YTD variance filters to latest month with consolidated data | abdb645 |
+| H6 | Site budget rollup includes all 9 cost categories | abdb645 |
+| H7 | `bigquery` added to `SourceSystem` enum + `SyncRun` column | abdb645 |
+| H10 | Debug file I/O removed from dashboard endpoint | abdb645 |
+| H11 | Debug file I/O removed from consolidation engine | abdb645 |
+| M15 | Model engine subtotal sign matches consolidation (add for P&L) | abdb645 |
+
+### Not yet fixed (high priority remaining)
+
+| ID | Summary |
+|----|---------|
+| H4 | Consolidation ignores entity `consolidation_method` |
+| H5 | Consolidation run created with bogus `period_id` |
+| H8 | AASB16 helpers load mappings without effective-date filtering |
+| H9 | In-memory OAuth state storage breaks multi-worker |
+| H12 | CSV export contribution formula omits 5 cost categories |
+| H13 | Weekly override save nulls the other override field |
+| H15 | RoleGuard silently grants access for unknown roles |
+| H16 | RoleGuard shows blank screen when user is null without token |
+| H17 | `fmtAUD` shows "(0)" for small negative values |
+| H22 | BigQuery sync blocks async event loop |
+
+## 17. Key Sign Conventions
+
+### Credit-normal storage
+All P&L amounts (revenue, COGS, opex, etc.) are stored in **credit-normal** format: revenue as negative, expenses as positive. This applies to `consolidated_actuals.amount`, `model_outputs.amount`, and `je_lines.amount`.
+
+### Display sign flip
+For user-facing display and Excel export, IS accounts multiply by `-1.0` so revenue appears positive. BS accounts use per-account sign based on `Account.normal_balance` (assets positive, liabilities/equity positive via credit-normal flip).
+
+### Variance
+`_compute_variance` in `reports.py` compares raw credit-normal values. `is_favourable = actual < budget` works for both income (more negative = higher revenue) and expenses (lower = less cost). The variance export also applies `sign = -1.0` so exported values match display convention.
+
+### Subtotals
+Both consolidation engine and model engine use `subtotal_formula` with `add`/`subtract` lists. For IS (P&L) accounts, "subtract" codes are **added** (not subtracted) because credit-normal values already carry the sign. For BS accounts, "subtract" codes are genuinely subtracted.
+
+## 18. Balance Sheet Architecture
 
 The balance sheet display differs from the income statement in two critical ways:
 
