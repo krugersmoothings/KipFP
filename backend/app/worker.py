@@ -25,6 +25,10 @@ celery_app.conf.update(
             "task": "app.worker.sync_all_netsuite",
             "schedule": crontab(hour=2, minute=0),
         },
+        "sync-bigquery-nightly": {
+            "task": "app.worker.sync_bigquery_nightly",
+            "schedule": crontab(hour=3, minute=0),
+        },
     },
 )
 
@@ -126,11 +130,11 @@ def sync_xero_entity_task(
 
 
 @celery_app.task(name="app.worker.consolidate_period_task")
-def consolidate_period_task(fy_year: int, fy_month: int):
+def consolidate_period_task(fy_year: int, fy_month: int, include_aasb16: bool = True):
     """Run consolidation for a period."""
     from app.services.consolidation_engine import consolidate_period
 
-    asyncio.run(consolidate_period(fy_year, fy_month))
+    asyncio.run(consolidate_period(fy_year, fy_month, include_aasb16=include_aasb16))
 
 
 def _trigger_auto_consolidation(fy_year: int, fy_month: int):
@@ -147,7 +151,57 @@ def _trigger_auto_consolidation(fy_year: int, fy_month: int):
         )
 
 
+# ── BigQuery tasks ────────────────────────────────────────────────────────────
+
+
+@celery_app.task(name="app.worker.sync_bigquery_task")
+def sync_bigquery_task(
+    date_from: str,
+    date_to: str,
+    sync_run_id: str | None = None,
+):
+    """Sync pet days from BigQuery for a date range (called by API endpoint)."""
+    from app.services.bigquery_sync_service import sync_pet_days
+
+    asyncio.run(sync_pet_days(date_from, date_to, sync_run_id))
+
+
+@celery_app.task(name="app.worker.sync_bigquery_nightly")
+def sync_bigquery_nightly():
+    """Scheduled: pull last 90 days of pet days from BigQuery at 3 AM AEST."""
+    from datetime import date, timedelta
+
+    from app.db.models.sync import SyncTrigger
+    from app.services.bigquery_sync_service import sync_pet_days
+
+    today = date.today()
+    date_from = (today - timedelta(days=90)).isoformat()
+    date_to = today.isoformat()
+
+    try:
+        asyncio.run(sync_pet_days(date_from, date_to, triggered_by=SyncTrigger.schedule))
+        logger.info("Nightly BigQuery sync complete (%s to %s)", date_from, date_to)
+    except Exception:
+        logger.exception("Nightly BigQuery sync failed")
+
+
 # ── Budget model tasks ────────────────────────────────────────────────────────
+
+
+@celery_app.task(name="app.worker.calculate_all_sites_task")
+def calculate_all_sites_task(version_id: str):
+    """Calculate weekly budget for all sites, roll up, then run model."""
+    import uuid as _uuid
+
+    from app.services.site_budget_engine import calculate_all_sites
+
+    vid = _uuid.UUID(version_id)
+    result = asyncio.run(calculate_all_sites(vid))
+
+    from app.services.model_engine import run_model
+    asyncio.run(run_model(vid))
+
+    return result
 
 
 @celery_app.task(name="app.worker.run_model_task", bind=True)

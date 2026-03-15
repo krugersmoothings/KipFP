@@ -1,6 +1,6 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Save, MapPin } from "lucide-react";
+import { Loader2, Save, MapPin, Upload, Download, CheckCircle2, AlertCircle, X } from "lucide-react";
 import api from "@/utils/api";
 import { useBudgetStore } from "@/stores/budget";
 import { usePeriodStore } from "@/stores/period";
@@ -10,6 +10,7 @@ import type {
   SiteSummary,
   SiteBudgetGrid,
   SiteBudgetSavePayload,
+  SiteBudgetImportResult,
   BudgetVersion,
 } from "@/types/api";
 
@@ -124,6 +125,67 @@ export default function SiteBudget() {
     saveMutation.mutate({ lines });
   }, [localGrid, saveMutation]);
 
+  // ── Import / Template ──────────────────────────────────────────────
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [downloadingTemplate, setDownloadingTemplate] = useState(false);
+  const [importResult, setImportResult] = useState<SiteBudgetImportResult | null>(null);
+
+  const handleDownloadTemplate = useCallback(async () => {
+    if (!activeVersionId) return;
+    setDownloadingTemplate(true);
+    try {
+      const res = await api.get(
+        `/api/v1/budgets/${activeVersionId}/sites/import/template`,
+        { responseType: "blob" }
+      );
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `kip_site_budget_template.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+    } finally {
+      setDownloadingTemplate(false);
+    }
+  }, [activeVersionId]);
+
+  const handleImport = useCallback(async (file: File) => {
+    if (!activeVersionId) return;
+    setImporting(true);
+    setImportResult(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await api.post(
+        `/api/v1/budgets/${activeVersionId}/sites/import`,
+        formData
+      );
+      setImportResult(res.data);
+      queryClient.invalidateQueries({ queryKey: ["site-budgets", activeVersionId] });
+      queryClient.invalidateQueries({ queryKey: ["site-budget-grid"] });
+      queryClient.invalidateQueries({ queryKey: ["budget-output"] });
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || "Import failed";
+      setImportResult({
+        status: "error",
+        rows_imported: 0,
+        entries_created: 0,
+        locations_updated: 0,
+        matched_locations: [],
+        unmatched_locations: [msg],
+        matched_line_items: [],
+        unmatched_line_items: [],
+        periods_matched: 0,
+      });
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }, [activeVersionId, queryClient]);
+
   const updateCell = useCallback(
     (lineItem: string, period: string, value: string) => {
       setLocalGrid((prev) => ({
@@ -140,9 +202,9 @@ export default function SiteBudget() {
   const siteTotalRevenue = (site: SiteSummary): number =>
     Object.values(site.monthly_totals).reduce((a, b) => a + b, 0);
 
-  // Compute summary row: total across all sites per period
+  // FIX(L11): summary should be visible whenever sites are loaded, not gated on siteGrid
   const summaryByPeriod: Record<string, number> = {};
-  if (sites && siteGrid) {
+  if (sites) {
     for (const site of sites) {
       for (const [period, amount] of Object.entries(site.monthly_totals)) {
         summaryByPeriod[period] = (summaryByPeriod[period] ?? 0) + amount;
@@ -152,14 +214,107 @@ export default function SiteBudget() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Site Budgets</h1>
-        <p className="text-muted-foreground">
-          FY{fyYear}
-          {activeVersion && <> &middot; {activeVersion.name}</>}
-          {" "}&middot; Enter budgets per site, rolled up to entity totals
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Site Budgets</h1>
+          <p className="text-muted-foreground">
+            FY{fyYear}
+            {activeVersion && <> &middot; {activeVersion.name}</>}
+            {" "}&middot; Enter budgets per site, rolled up to entity totals
+          </p>
+        </div>
+        {activeVersionId && (
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDownloadTemplate}
+              disabled={downloadingTemplate}
+            >
+              {downloadingTemplate ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
+              Template
+            </Button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleImport(f);
+              }}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importing}
+            >
+              {importing ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Upload className="mr-2 h-4 w-4" />
+              )}
+              Import
+            </Button>
+          </div>
+        )}
       </div>
+
+      {/* Import result banner */}
+      {importResult && (
+        <div
+          className={`rounded-lg border px-4 py-3 ${
+            importResult.status === "success"
+              ? "border-emerald-300 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-950/30"
+              : "border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-950/30"
+          }`}
+        >
+          <div className="flex items-start justify-between">
+            <div className="flex items-start gap-2">
+              {importResult.status === "success" ? (
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+              ) : (
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-red-600" />
+              )}
+              <div className="text-sm">
+                {importResult.status === "success" ? (
+                  <>
+                    <p className="font-medium text-emerald-800 dark:text-emerald-300">
+                      Imported {importResult.rows_imported} rows across {importResult.locations_updated} locations
+                      ({importResult.entries_created} entries, {importResult.periods_matched} months matched)
+                    </p>
+                    {importResult.unmatched_locations.length > 0 && (
+                      <p className="mt-1 text-amber-700 dark:text-amber-400">
+                        Unmatched locations: {importResult.unmatched_locations.join(", ")}
+                      </p>
+                    )}
+                    {importResult.unmatched_line_items.length > 0 && (
+                      <p className="mt-1 text-amber-700 dark:text-amber-400">
+                        Unmatched line items: {importResult.unmatched_line_items.join(", ")}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="font-medium text-red-800 dark:text-red-300">
+                    {importResult.unmatched_locations[0] || "Import failed"}
+                  </p>
+                )}
+              </div>
+            </div>
+            <button
+              onClick={() => setImportResult(null)}
+              className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {!activeVersionId && (
         <div className="rounded-lg border bg-card p-12 text-center text-muted-foreground">

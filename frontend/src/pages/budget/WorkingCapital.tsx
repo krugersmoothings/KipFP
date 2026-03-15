@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Loader2, Save } from "lucide-react";
 import api from "@/utils/api";
@@ -80,11 +80,16 @@ export default function WorkingCapital() {
     []
   );
 
-  const prevDriversRef = useState<string>("");
-  if (drivers && JSON.stringify(drivers) !== prevDriversRef[0]) {
-    prevDriversRef[1](JSON.stringify(drivers));
-    initLocal(drivers);
-  }
+  // FIX(M26): use useEffect instead of setState-during-render
+  const prevDriversJson = useRef("");
+  useEffect(() => {
+    if (!drivers) return;
+    const json = JSON.stringify(drivers);
+    if (json !== prevDriversJson.current) {
+      prevDriversJson.current = json;
+      initLocal(drivers);
+    }
+  }, [drivers, initLocal]);
 
   const saveMutation = useMutation({
     mutationFn: async (updates: WcDriverUpdate[]) => {

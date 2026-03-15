@@ -5,7 +5,7 @@ consolidated actuals with IC elimination and BS validation.
 import logging
 import uuid
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 
 from sqlalchemy import delete, select
@@ -82,9 +82,14 @@ async def consolidate_period(
             account_by_id: dict[uuid.UUID, Account] = {a.id: a for a in all_accounts}
             account_by_code: dict[str, Account] = {a.code: a for a in all_accounts}
 
-            # ── Load active entities ─────────────────────────────────────
+            # ── Load active entities (respecting consolidation_method) ────
+            from app.db.models.entity import ConsolidationMethod
+
             result = await db.execute(
-                select(Entity).where(Entity.is_active.is_(True))
+                select(Entity).where(
+                    Entity.is_active.is_(True),
+                    Entity.consolidation_method == ConsolidationMethod.full,
+                )
             )
             entities = result.scalars().all()
             entity_ids = {e.id for e in entities}
@@ -111,8 +116,10 @@ async def consolidate_period(
             )
             all_mappings = result.scalars().all()
 
+            # FIX(L36): deterministic ordering — latest effective_from wins
             mapping_lookup: dict[tuple[uuid.UUID, str], AccountMapping] = {}
-            for m in all_mappings:
+            sorted_mappings = sorted(all_mappings, key=lambda m: m.effective_from or date.min)
+            for m in sorted_mappings:
                 if m.effective_to is not None and m.effective_to < period.period_start:
                     continue
                 mapping_lookup[(m.entity_id, m.source_account_code)] = m
@@ -314,7 +321,7 @@ async def consolidate_period(
 
         except Exception as exc:
             logger.exception("Consolidation failed FY%dM%02d", fy_year, fy_month)
-            # FIX(C5): rollback first so the DELETE + partial inserts are not persisted
+            _error_detail = str(exc)[:2000]
             await db.rollback()
 
         # Record failure in a separate transaction so corrupt data is never committed
@@ -324,7 +331,7 @@ async def consolidate_period(
                     id=run_id,
                     period_id=run.period_id,
                     status=ConsolidationStatus.failed,
-                    error_detail=str(exc)[:2000],
+                    error_detail=_error_detail,
                     completed_at=datetime.now(timezone.utc),
                 ))
                 try:

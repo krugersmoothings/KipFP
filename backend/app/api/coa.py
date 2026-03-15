@@ -165,6 +165,15 @@ async def save_mapping(
     )
     existing = result.scalar_one_or_none()
 
+    # FIX(M12): validate FK references before insert/update
+    target_acct = await db.get(Account, payload.target_account_id)
+    if target_acct is None:
+        raise HTTPException(status_code=422, detail="target_account_id does not exist")
+    if not existing:
+        ent = await db.get(Entity, payload.entity_id)
+        if ent is None:
+            raise HTTPException(status_code=422, detail="entity_id does not exist")
+
     if existing:
         existing.target_account_id = payload.target_account_id
         existing.multiplier = payload.multiplier

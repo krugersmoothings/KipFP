@@ -34,6 +34,8 @@ function fmtPct(n: number | null): string {
 function varianceBg(row: VarianceRow): string {
   if (row.is_section_header || row.is_favourable === null) return "";
   const mag = Math.abs(row.variance_pct ?? 0);
+  // FIX(M32): zero-variance rows should not be highlighted
+  if (mag < 0.05) return "";
   if (row.is_favourable) {
     if (mag >= 10) return "bg-green-200 dark:bg-green-900/50";
     if (mag >= 5) return "bg-green-100 dark:bg-green-900/30";
@@ -242,7 +244,8 @@ export default function VariancePage() {
                       ? "bg-muted/30 font-semibold border-t"
                       : "";
                     const indent = row.indent_level > 0 ? "pl-6" : "";
-                    const isEditingThis = editingComment === row.account_code;
+                    // FIX(M31): key editing on account_id (not code) since save requires it
+                    const isEditingThis = editingComment === row.account_id;
 
                     return (
                       <tr key={row.account_code || `r-${idx}`} className={`border-b last:border-0 ${subtotalCls}`}>
@@ -303,8 +306,8 @@ export default function VariancePage() {
                                 row.commentary ? "text-foreground" : "text-muted-foreground/50"
                               }`}
                               onClick={() => {
-                                if (canEdit && !row.is_section_header) {
-                                  setEditingComment(row.account_code);
+                                if (canEdit && !row.is_section_header && row.account_id) {
+                                  setEditingComment(row.account_id);
                                   setCommentText(row.commentary || "");
                                 }
                               }}

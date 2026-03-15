@@ -176,10 +176,17 @@ async def calculate_site_weekly_budget(
         session = async_session_factory()
         db = await session.__aenter__()
     try:
-        return await _calculate_inner(db, version_id, location_id)
-    finally:
+        result = await _calculate_inner(db, version_id, location_id)
+        # FIX(M20): only commit on success — previously finally block committed partial data
         if own_session:
             await db.commit()
+        return result
+    except Exception:
+        if own_session:
+            await db.rollback()
+        raise
+    finally:
+        if own_session:
             await session.__aexit__(None, None, None)
 
 

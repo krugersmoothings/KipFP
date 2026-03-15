@@ -133,6 +133,12 @@ export default function AppLayout() {
     navigate("/login");
   };
 
+  // FIX(M42): redirect unauthenticated users instead of showing a partial shell
+  if (!user && !token) {
+    navigate("/login");
+    return null;
+  }
+
   const role: UserRole = user?.role ?? "viewer";
 
   const visibleGroups = NAV_GROUPS.map((g) => ({
@@ -167,7 +173,7 @@ export default function AppLayout() {
                 <NavLink
                   key={item.to}
                   to={item.to}
-                  end={item.to === "/"}
+                  end
                   onClick={() => setSidebarOpen(false)}
                   className={({ isActive }) =>
                     `${linkBase} ${isActive ? linkActive : linkInactive}`

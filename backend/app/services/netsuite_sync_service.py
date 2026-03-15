@@ -111,6 +111,8 @@ async def sync_entity(
             upserted = 0
             for row in rows:
                 amount = Decimal(str(row.get("amount", 0) or 0))
+                class_name = str(row.get("class_name") or "")
+                is_aasb16 = class_name.strip().upper().replace(" ", "") == "AASB16"
 
                 stmt = insert(JeLine).values(
                     id=uuid.uuid4(),
@@ -122,9 +124,10 @@ async def sync_entity(
                     sync_run_id=run_id,
                     source_ref=str(row.get("accttype", "")),
                     location_id=None,
+                    is_aasb16=is_aasb16,
                 )
                 stmt = stmt.on_conflict_do_update(
-                    constraint="uq_je_lines_entity_period_account",
+                    constraint="uq_je_lines_entity_period_account_aasb16",
                     set_={
                         "amount": stmt.excluded.amount,
                         "source_account_name": stmt.excluded.source_account_name,

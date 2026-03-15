@@ -40,6 +40,7 @@ class ConsolidatedActual(Base):
     )
     amount: Mapped[float] = mapped_column(Numeric(18, 2), nullable=False, default=0)
     is_group_total: Mapped[bool] = mapped_column(Boolean, default=False)
+    include_aasb16: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     calculated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

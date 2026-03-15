@@ -26,7 +26,13 @@ async def trigger_netsuite_sync(
     _user: User = Depends(require_admin),
 ):
     """Trigger a NetSuite trial balance sync for one entity + period."""
+    from datetime import datetime, timezone
+
     from app.worker import sync_entity_task
+
+    entity = await db.get(Entity, entity_id)
+    if entity is None:
+        raise HTTPException(status_code=404, detail="Entity not found")
 
     run_id = uuid.uuid4()
 
@@ -36,6 +42,7 @@ async def trigger_netsuite_sync(
         source_system="netsuite",
         status=SyncStatus.running,
         triggered_by=SyncTrigger.manual,
+        started_at=datetime.now(timezone.utc),
     )
     db.add(run)
     await db.commit()
@@ -59,7 +66,13 @@ async def trigger_xero_sync(
     _user: User = Depends(require_admin),
 ):
     """Trigger a Xero trial balance sync for one entity + period."""
+    from datetime import datetime, timezone
+
     from app.worker import sync_xero_entity_task
+
+    entity = await db.get(Entity, entity_id)
+    if entity is None:
+        raise HTTPException(status_code=404, detail="Entity not found")
 
     run_id = uuid.uuid4()
 
@@ -69,6 +82,7 @@ async def trigger_xero_sync(
         source_system="xero",
         status=SyncStatus.running,
         triggered_by=SyncTrigger.manual,
+        started_at=datetime.now(timezone.utc),
     )
     db.add(run)
     await db.commit()

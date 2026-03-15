@@ -29,10 +29,13 @@ const METRIC_CONFIG: Record<Metric, { label: string; color: string; priorColor: 
 };
 
 
-const now = new Date();
-const calMonth = now.getMonth() + 1;
-const calYear = now.getFullYear();
-const currentFyYear = calMonth >= 7 ? calYear + 1 : calYear;
+// FIX(L13): compute inside component or use a function to avoid stale module-level value
+function getCurrentFyYear(): number {
+  const now = new Date();
+  const calMonth = now.getMonth() + 1;
+  const calYear = now.getFullYear();
+  return calMonth >= 7 ? calYear + 1 : calYear;
+}
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("en-AU", { maximumFractionDigits: 0 }).format(v / 1000);
@@ -52,12 +55,14 @@ export default function TimeSeries() {
   const [entityFilter, setEntityFilter] = useState<Set<string>>(new Set());
   const [exporting, setExporting] = useState(false);
 
+  const currentFyYear = useMemo(() => getCurrentFyYear(), []);
+
+  // FIX(L16): fetch entities from API instead of hardcoded list
   const { data: entities } = useQuery<EntityRead[]>({
     queryKey: ["entities"],
     queryFn: async () => (await api.get("/api/v1/entities")).data,
   });
 
-  // Default "from" to 24 months before the data-prepared-to period
   const defaultFromFy = dataPreparedToFyMonth <= 12 ? dataPreparedToFyYear - 2 : dataPreparedToFyYear - 1;
   const [fromFyYear, setFromFyYear] = useState(defaultFromFy);
   const [fromFyMonth, setFromFyMonth] = useState(dataPreparedToFyMonth);
@@ -130,18 +135,25 @@ export default function TimeSeries() {
   });
 
   // Transform multi data into chart format
+  // FIX(M33): align chart data by period label instead of array index
   const chartData = useMemo(() => {
     if (!multiData) return [];
+    const singleByLabel = new Map<string, TimeSeriesPoint>();
+    if (singleData) {
+      for (const pt of singleData) {
+        singleByLabel.set(pt.period_label, pt);
+      }
+    }
     return multiData.periods.map((label, idx) => {
       const point: Record<string, string | number> = { period: label };
       multiData.series.forEach((s) => {
         point[s.metric] = s.values[idx];
       });
-      // Add prior year values from single data if available
-      if (singleData && singleData[idx]) {
-        point[`${primaryMetric}_prior`] = singleData[idx].prior_year_value ?? 0;
-        point[`${primaryMetric}_r3m`] = singleData[idx].rolling_3m_avg ?? 0;
-        point[`${primaryMetric}_r12m`] = singleData[idx].rolling_12m_avg ?? 0;
+      const singlePoint = singleByLabel.get(label);
+      if (singlePoint) {
+        point[`${primaryMetric}_prior`] = singlePoint.prior_year_value ?? 0;
+        point[`${primaryMetric}_r3m`] = singlePoint.rolling_3m_avg ?? 0;
+        point[`${primaryMetric}_r12m`] = singlePoint.rolling_12m_avg ?? 0;
       }
       return point;
     });

@@ -197,10 +197,11 @@ export default function ScenarioCompare() {
                     {comparison.scenarios.length > 1 && baseMetric && (
                       <td className="px-4 py-2 text-right tabular-nums text-muted-foreground">
                         {(() => {
-                          const last = comparison.scenarios[comparison.scenarios.length - 1];
+                          // FIX(M45): compare first vs second scenario (first = base)
+                          const second = comparison.scenarios[1];
                           const baseVal = (baseMetric[mr.key] as number | null) ?? 0;
-                          const lastVal = (last[mr.key] as number | null) ?? 0;
-                          const delta = lastVal - baseVal;
+                          const secondVal = (second[mr.key] as number | null) ?? 0;
+                          const delta = secondVal - baseVal;
                           if (mr.format === "pct") return fmtPct(delta);
                           return fmtAUD(delta);
                         })()}

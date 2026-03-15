@@ -54,3 +54,19 @@ class ExportRequest(BaseModel):
     version_id: uuid.UUID | None = None
     fy_year: int
     format: str = "xlsx"  # 'xlsx' | 'pdf'
+    include_aasb16: bool = True
+
+
+class ManagementPackPeriods(BaseModel):
+    prior2_fy_year: int = 2024
+    prior1_fy_year: int = 2025
+    ytd_fy_year: int = 2026
+    ytd_to_month: int = 7
+    forecast_fy_year: int = 2026
+    budget_version_id: uuid.UUID | None = None
+
+
+class ManagementPackRequest(BaseModel):
+    entity_id: uuid.UUID | None = None
+    include_aasb16: bool = True
+    periods: ManagementPackPeriods

@@ -16,7 +16,7 @@ from decimal import Decimal
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models.debt import AmortType, DebtFacility, DebtSchedule
+from app.db.models.debt import AmortType, DebtFacility, DebtSchedule, InterestCalcMethod
 from app.db.models.period import Period
 
 logger = logging.getLogger(__name__)
@@ -111,11 +111,20 @@ async def calculate_debt_waterfall(
         for period in periods:
             if fac.maturity_date and period.period_start and period.period_start > fac.maturity_date:
                 interest = Decimal("0")
-                repayment = Decimal("0")
+                # FIX(M17): P&I loans should repay remaining balance at maturity
+                if opening > Decimal("0") and fac.amort_type == AmortType.principal_and_interest:
+                    repayment = opening
+                else:
+                    repayment = Decimal("0")
                 drawdown = Decimal("0")
-                closing = opening
+                closing = opening - repayment
             else:
-                interest = opening * annual_rate / Decimal("12")
+                # FIX(M16): respect interest_calc_method (daily vs monthly)
+                if fac.interest_calc_method == InterestCalcMethod.daily and period.period_start and period.period_end:
+                    days_in_period = (period.period_end - period.period_start).days + 1
+                    interest = opening * annual_rate * Decimal(str(days_in_period)) / Decimal("365")
+                else:
+                    interest = opening * annual_rate / Decimal("12")
 
                 if fac.amort_type == AmortType.interest_only:
                     repayment = Decimal("0")

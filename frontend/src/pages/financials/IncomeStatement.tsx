@@ -43,6 +43,9 @@ export default function IncomeStatement() {
       link.click();
       link.remove();
       window.URL.revokeObjectURL(url);
+    } catch {
+      // FIX(M22): surface export errors to the user
+      alert("Export failed — please try again.");
     } finally {
       setExporting(false);
     }

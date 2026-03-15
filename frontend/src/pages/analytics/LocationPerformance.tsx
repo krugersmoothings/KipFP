@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -22,7 +22,8 @@ import type { LocationPerformanceRow, LocationTimeSeriesPoint, BudgetVersion } f
 type SortBy = "revenue" | "site_pl" | "variance_pct" | "alphabetical";
 type ViewMode = "chart" | "table" | "both";
 
-const STATES = ["NSW", "VIC", "QLD", "SA", "WA"];
+// FIX(L15): include all Australian states/territories
+const STATES = ["ACT", "NSW", "NT", "QLD", "SA", "TAS", "VIC", "WA"];
 
 const fmtCurrency = (v: number) =>
   new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(v);
@@ -31,6 +32,7 @@ const fmtPct = (v: number | null) =>
   v != null ? `${v > 0 ? "+" : ""}${v.toFixed(1)}%` : "—";
 
 function SparkLine({ data }: { data: LocationTimeSeriesPoint[] }) {
+  // FIX(M37): handle single data point (avoids 0/0 = NaN)
   if (!data || data.length === 0) return <span className="text-muted-foreground">—</span>;
   const values = data.map((d) => d.site_pl);
   const max = Math.max(...values);
@@ -38,9 +40,10 @@ function SparkLine({ data }: { data: LocationTimeSeriesPoint[] }) {
   const range = max - min || 1;
   const width = 80;
   const height = 24;
+  const denominator = values.length > 1 ? values.length - 1 : 1;
   const points = values
     .map((v, i) => {
-      const x = (i / (values.length - 1)) * width;
+      const x = (i / denominator) * width;
       const y = height - ((v - min) / range) * height;
       return `${x},${y}`;
     })
@@ -443,9 +446,8 @@ export default function LocationPerformance() {
                 {filteredLocations.map((loc) => {
                   const isExpanded = expandedRow === loc.location_id;
                   return (
-                    <>
+                    <React.Fragment key={loc.location_id}>
                       <tr
-                        key={loc.location_id}
                         onClick={() => setExpandedRow(isExpanded ? null : loc.location_id)}
                         className="cursor-pointer border-b transition-colors hover:bg-muted/30"
                       >
@@ -553,7 +555,7 @@ export default function LocationPerformance() {
                           </td>
                         </tr>
                       )}
-                    </>
+                    </React.Fragment>
                   );
                 })}
               </tbody>

@@ -30,8 +30,10 @@ export default function UsersPage() {
       setEmail("");
       setPassword("");
       setRole("viewer");
-    } catch {
-      setError("Failed to create user. The email may already be in use.");
+    } catch (err: unknown) {
+      // FIX(L19): show actual error detail from the API
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail;
+      setError(detail || "Failed to create user.");
     } finally {
       setLoading(false);
     }

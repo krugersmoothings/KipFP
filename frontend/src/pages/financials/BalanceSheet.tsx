@@ -71,7 +71,7 @@ export default function BalanceSheet() {
           rows={data.rows}
           periods={data.periods}
           showEntityBreakdown={showBreakdown}
-          highlightVariance
+          highlightVariance={false}
         />
       )}
 

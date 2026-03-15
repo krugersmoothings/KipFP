@@ -60,6 +60,9 @@ MONTH_ABBR = [
 
 
 def _period_label(period: Period) -> str:
+    # FIX(M5): handle fy_month=0 opening balance periods
+    if period.fy_month == 0:
+        return "OB"
     if period.period_start:
         return period.period_start.strftime("%b-%y")
     cal_year = period.fy_year - 1 if period.fy_month <= 6 else period.fy_year
@@ -1001,7 +1004,6 @@ async def save_site_budget(
 
     await db.commit()
 
-    # Trigger rollup in background
     from app.services.site_rollup_service import rollup_sites_to_entity
     try:
         await rollup_sites_to_entity(db, budget_id)
@@ -1009,6 +1011,10 @@ async def save_site_budget(
     except Exception:
         import logging
         logging.getLogger(__name__).exception("Rollup failed after site save")
+        raise HTTPException(
+            status_code=500,
+            detail="Site budget saved but entity-level rollup failed. Please retry.",
+        )
 
     return await get_site_budget(budget_id, location_id, db, user)
 
@@ -1271,20 +1277,25 @@ async def import_site_budgets(
         if not loc_val:
             continue
 
-        # Match location
+        # Match location — exact first, then unambiguous substring
         norm_loc = _normalise(loc_val)
         location = loc_by_name.get(norm_loc) or loc_by_code.get(norm_loc)
         if not location:
-            # Partial match: check if any known name contains this value or vice versa
-            for known_name, known_loc in loc_by_name.items():
-                if norm_loc in known_name or known_name in norm_loc:
-                    location = known_loc
-                    break
-            if not location:
-                for known_code, known_loc in loc_by_code.items():
-                    if norm_loc == known_code or known_code.startswith(norm_loc):
-                        location = known_loc
-                        break
+            candidates = [
+                known_loc
+                for known_name, known_loc in loc_by_name.items()
+                if norm_loc in known_name or known_name in norm_loc
+            ]
+            if len(candidates) == 1:
+                location = candidates[0]
+            elif not candidates:
+                code_candidates = [
+                    known_loc
+                    for known_code, known_loc in loc_by_code.items()
+                    if norm_loc == known_code or known_code.startswith(norm_loc)
+                ]
+                if len(code_candidates) == 1:
+                    location = code_candidates[0]
 
         if not location:
             unmatched_locations.add(loc_val)
@@ -1605,7 +1616,7 @@ async def _get_model_output(
     else:
         result = await db.execute(
             select(Period)
-            .where(Period.fy_year == fy_year)
+            .where(Period.fy_year == fy_year, Period.fy_month >= 1)
             .order_by(Period.fy_month)
         )
         all_periods = list(result.scalars().all())
@@ -1925,6 +1936,12 @@ async def save_site_assumptions(
     )
     assumptions = result.scalar_one_or_none()
 
+    if assumptions is not None and assumptions.assumptions_locked:
+        raise HTTPException(
+            status_code=409,
+            detail="Assumptions are locked for this site. Unlock before editing.",
+        )
+
     if assumptions is None:
         assumptions = SiteBudgetAssumption(
             version_id=budget_id,
@@ -1933,10 +1950,10 @@ async def save_site_assumptions(
         )
         db.add(assumptions)
 
+    # FIX(L23): allow clearing fields to NULL by removing the `is not None` guard
     update_data = payload.model_dump(exclude_unset=True)
     for field, value in update_data.items():
-        if value is not None:
-            setattr(assumptions, field, value)
+        setattr(assumptions, field, value)
 
     assumptions.last_updated_by = user.id
     assumptions.last_updated_at = datetime.now(timezone.utc)

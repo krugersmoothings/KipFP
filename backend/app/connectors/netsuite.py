@@ -259,20 +259,55 @@ class NetSuiteClient:
     ) -> list[dict[str, Any]]:
         """Pull a monthly trial balance for a NetSuite subsidiary.
 
-        Returns rows with keys: acctnumber, fullname, accttype, amount.
+        Returns rows with keys: acctnumber, fullname, accttype, class_name, amount.
         ``amount`` is the net (positive = debit, negative = credit).
+        Rows are grouped by account AND class so AASB16 lines are separated.
         """
         query = (
             "SELECT a.acctnumber, a.fullname, a.accttype, "
+            "cl.name AS class_name, "
             "SUM(tl.amount) AS amount "
             "FROM transaction t "
             "JOIN transactionline tl ON t.id = tl.transaction "
             "JOIN account a ON tl.account = a.id "
+            "LEFT JOIN classification cl ON tl.class = cl.id "
             f"WHERE t.subsidiary = {int(subsidiary_id)} "
             f"AND EXTRACT(MONTH FROM t.trandate) = {int(month)} "
             f"AND EXTRACT(YEAR FROM t.trandate) = {int(year)} "
             "AND t.posting = 'T' "
-            "GROUP BY a.acctnumber, a.fullname, a.accttype "
+            "GROUP BY a.acctnumber, a.fullname, a.accttype, cl.name "
+            "ORDER BY a.acctnumber"
+        )
+        return await self._suiteql(query)
+
+    async def get_trial_balance_as_at(
+        self,
+        subsidiary_id: str,
+        as_at_year: int,
+        as_at_month: int,
+    ) -> list[dict[str, Any]]:
+        """Cumulative trial balance for a subsidiary up to the end of *as_at_month*.
+
+        Returns the same row format as ``get_trial_balance`` (acctnumber, fullname,
+        accttype, class_name, amount) but aggregates ALL posted transactions from
+        inception through the given month-end.  Used for opening-balance imports.
+        """
+        import calendar
+        last_day = calendar.monthrange(as_at_year, as_at_month)[1]
+        as_at_date = f"{as_at_year}-{as_at_month:02d}-{last_day:02d}"
+
+        query = (
+            "SELECT a.acctnumber, a.fullname, a.accttype, "
+            "cl.name AS class_name, "
+            "SUM(tl.amount) AS amount "
+            "FROM transaction t "
+            "JOIN transactionline tl ON t.id = tl.transaction "
+            "JOIN account a ON tl.account = a.id "
+            "LEFT JOIN classification cl ON tl.class = cl.id "
+            f"WHERE t.subsidiary = {int(subsidiary_id)} "
+            f"AND t.trandate <= TO_DATE('{as_at_date}', 'YYYY-MM-DD') "
+            "AND t.posting = 'T' "
+            "GROUP BY a.acctnumber, a.fullname, a.accttype, cl.name "
             "ORDER BY a.acctnumber"
         )
         return await self._suiteql(query)

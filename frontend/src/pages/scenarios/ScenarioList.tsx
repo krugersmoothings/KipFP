@@ -18,7 +18,6 @@ export default function ScenarioList() {
 
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
-  const [creating, setCreating] = useState(false);
 
   const { data: versions } = useQuery<BudgetVersion[]>({
     queryKey: ["budget-versions", fyYear],
@@ -40,8 +39,8 @@ export default function ScenarioList() {
   });
 
   const createMutation = useMutation({
+    // FIX(L18): removed redundant `creating` state — use createMutation.isPending instead
     mutationFn: async (name: string) => {
-      setCreating(true);
       const res = await api.post("/api/v1/scenarios/", {
         name,
         base_version_id: activeVersionId,
@@ -52,9 +51,7 @@ export default function ScenarioList() {
       queryClient.invalidateQueries({ queryKey: ["scenarios"] });
       setShowCreate(false);
       setNewName("");
-      setCreating(false);
     },
-    onError: () => setCreating(false),
   });
 
   const activeVersion = versions?.find((v) => v.id === activeVersionId);
@@ -108,9 +105,9 @@ export default function ScenarioList() {
             <Button
               size="sm"
               onClick={() => newName.trim() && createMutation.mutate(newName.trim())}
-              disabled={!newName.trim() || creating}
+              disabled={!newName.trim() || createMutation.isPending}
             >
-              {creating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Create & Calculate
             </Button>
             <Button

@@ -89,8 +89,11 @@ export default function SyncRuns() {
     },
   });
 
+  // FIX(L8): sort runs by started_at descending so [0] is truly the latest
   const entityRows: EntitySyncRow[] = (entities.data ?? []).map((ent) => {
-    const runs = (syncRuns.data ?? []).filter((r) => r.entity_id === ent.id);
+    const runs = (syncRuns.data ?? [])
+      .filter((r) => r.entity_id === ent.id)
+      .sort((a, b) => (b.started_at ?? "").localeCompare(a.started_at ?? ""));
     return { entity: ent, lastRun: runs[0] ?? null };
   });
 

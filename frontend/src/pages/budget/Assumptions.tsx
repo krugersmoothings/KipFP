@@ -14,6 +14,7 @@ import type {
   AssumptionPayload,
   AssumptionKey,
   EntityRead,
+  LocationRead,
   CalculationTriggerResponse,
   CalculationStatusResponse,
 } from "@/types/api";
@@ -33,12 +34,12 @@ const MONTHS = [
 ];
 
 const TAB_DESCRIPTIONS: Record<AssumptionKey, string> = {
-  revenue_growth: "Revenue growth rate (%) per entity per period",
-  cogs_pct: "COGS as a percentage of revenue",
-  employment_wages: "Total wages amount ($) per month",
-  other_opex: "Operating expenses by category",
-  capex: "Monthly capital expenditure amounts ($)",
-  tax_rate: "Effective tax rate (%)",
+  revenue_growth: "Revenue growth rate (%) per location per period",
+  cogs_pct: "COGS as a percentage of revenue per location",
+  employment_wages: "Total wages amount ($) per location per month",
+  other_opex: "Operating expenses by location",
+  capex: "Monthly capital expenditure amounts ($) per location",
+  tax_rate: "Effective tax rate (%) per subsidiary",
 };
 
 export default function Assumptions() {
@@ -68,6 +69,14 @@ export default function Assumptions() {
     },
   });
 
+  const { data: locations } = useQuery<LocationRead[]>({
+    queryKey: ["locations"],
+    queryFn: async () => {
+      const res = await api.get("/api/v1/entities/locations");
+      return res.data;
+    },
+  });
+
   const { data: assumptions, isLoading: assumptionsLoading } = useQuery<ModelAssumptionRead[]>({
     queryKey: ["budget-assumptions", activeVersionId],
     queryFn: async () => {
@@ -81,7 +90,12 @@ export default function Assumptions() {
     if (!assumptions) return;
     const vals: Record<string, Record<string, string>> = {};
     for (const a of assumptions) {
-      const rowKey = `${a.assumption_key}::${a.entity_id ?? "all"}`;
+      let rowKey: string;
+      if (a.assumption_key === "tax_rate") {
+        rowKey = `${a.assumption_key}::entity::${a.entity_id ?? "all"}`;
+      } else {
+        rowKey = `${a.assumption_key}::location::${a.location_id ?? "unknown"}`;
+      }
       const monthVals: Record<string, string> = {};
       const av = a.assumption_value as Record<string, unknown>;
       for (const [k, v] of Object.entries(av)) {
@@ -118,18 +132,30 @@ export default function Assumptions() {
   const buildPayloads = useCallback((): AssumptionPayload[] => {
     const payloads: AssumptionPayload[] = [];
     for (const [rowKey, monthVals] of Object.entries(localValues)) {
-      const [key, entityPart] = rowKey.split("::");
-      const entityId = entityPart === "all" ? null : entityPart;
+      const parts = rowKey.split("::");
+      const key = parts[0];
+      const dimension = parts[1];
+      const dimId = parts[2];
       const assumptionValue: Record<string, number> = {};
       for (const [mKey, mVal] of Object.entries(monthVals)) {
         const num = parseFloat(mVal);
         if (!isNaN(num)) assumptionValue[mKey] = num;
       }
-      payloads.push({
-        entity_id: entityId,
-        assumption_key: key as AssumptionKey,
-        assumption_value: assumptionValue,
-      });
+      if (dimension === "entity") {
+        payloads.push({
+          entity_id: dimId === "all" ? null : dimId,
+          location_id: null,
+          assumption_key: key as AssumptionKey,
+          assumption_value: assumptionValue,
+        });
+      } else {
+        payloads.push({
+          entity_id: null,
+          location_id: dimId === "unknown" ? null : dimId,
+          assumption_key: key as AssumptionKey,
+          assumption_value: assumptionValue,
+        });
+      }
     }
     return payloads;
   }, [localValues]);
@@ -172,7 +198,8 @@ export default function Assumptions() {
     } catch {
       setCalculating(false);
     }
-  }, [handleSave, activeVersionId, queryClient]);
+  // FIX(L22): correct deps — uses saveMutation and buildPayloads, not handleSave
+  }, [saveMutation, buildPayloads, activeVersionId, queryClient]);
 
   useEffect(() => {
     return () => {
@@ -191,17 +218,23 @@ export default function Assumptions() {
   );
 
   const activeEntities = (entities ?? []).filter((e) => e.is_active);
+  const activeLocations = (locations ?? []).filter((l) => l.is_active);
   const activeVersion = versions?.find((v) => v.id === activeVersionId);
 
   const filteredAssumptionRows = (() => {
     const rows: { rowKey: string; label: string }[] = [];
     if (activeTab === "tax_rate") {
-      rows.push({ rowKey: `${activeTab}::all`, label: "Effective Tax Rate" });
-    } else {
       for (const entity of activeEntities) {
         rows.push({
-          rowKey: `${activeTab}::${entity.id}`,
+          rowKey: `${activeTab}::entity::${entity.id}`,
           label: entity.name ?? entity.code,
+        });
+      }
+    } else {
+      for (const loc of activeLocations) {
+        rows.push({
+          rowKey: `${activeTab}::location::${loc.id}`,
+          label: loc.name ?? loc.code ?? loc.id,
         });
       }
     }
@@ -213,7 +246,7 @@ export default function Assumptions() {
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Budget Assumptions</h1>
         <p className="text-muted-foreground">
-          FY{fyYear} &middot; Configure model assumptions by entity and period
+          FY{fyYear} &middot; Configure model assumptions by location and period
         </p>
       </div>
 
@@ -404,7 +437,7 @@ export default function Assumptions() {
                       <thead>
                         <tr className="border-b bg-muted/50">
                           <th className="px-3 py-2 text-left font-medium sticky left-0 bg-muted/50 z-10 min-w-[160px]">
-                            {activeTab === "tax_rate" ? "Rate" : "Entity"}
+                            {activeTab === "tax_rate" ? "Subsidiary" : "Location"}
                           </th>
                           {MONTHS.map((m) => (
                             <th
@@ -447,9 +480,13 @@ export default function Assumptions() {
                               colSpan={13}
                               className="px-4 py-8 text-center text-muted-foreground"
                             >
-                              {activeEntities.length === 0
-                                ? "No active entities. Add entities in Admin."
-                                : "No data to display."}
+                              {activeTab === "tax_rate"
+                                ? activeEntities.length === 0
+                                  ? "No active subsidiaries. Add entities in Admin."
+                                  : "No data to display."
+                                : activeLocations.length === 0
+                                  ? "No active locations."
+                                  : "No data to display."}
                             </td>
                           </tr>
                         )}

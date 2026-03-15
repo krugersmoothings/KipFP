@@ -25,6 +25,7 @@ from app.db.models import (  # noqa: E402, F401
     entity,
     location,
     period,
+    pet_days,
     sync,
     user,
     wc,

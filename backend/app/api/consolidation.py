@@ -100,9 +100,10 @@ async def trigger_consolidation(
     """Trigger consolidation for a period via Celery."""
     from app.worker import consolidate_period_task
 
-    task = consolidate_period_task.delay(fy_year, fy_month)
+    run_id = uuid.uuid4()
+    task = consolidate_period_task.delay(fy_year, fy_month, str(run_id))
     return ConsolidationTriggerResponse(
-        consolidation_run_id=uuid.UUID(int=0),
+        consolidation_run_id=run_id,
         status="queued",
     )
 
@@ -205,10 +206,11 @@ async def _get_statement(
     accounts = list(result.scalars().all())
     account_ids = [a.id for a in accounts]
 
-    # ── Load actuals for all relevant periods ────────────────────────
+    # ── Load actuals for all relevant periods (filtered to statement accounts)
     result = await db.execute(
         select(ConsolidatedActual).where(
             ConsolidatedActual.period_id.in_(period_ids),
+            ConsolidatedActual.account_id.in_(account_ids),
         )
     )
     actuals = result.scalars().all()
@@ -397,10 +399,12 @@ async def _get_bs_statement(
     )
     accounts = list(result.scalars().all())
 
-    # ── Load actuals across all historical periods ────────────────────
+    # ── Load actuals across all historical periods (filtered to BS accounts)
+    account_ids = [a.id for a in accounts]
     result = await db.execute(
         select(ConsolidatedActual).where(
             ConsolidatedActual.period_id.in_(all_period_ids),
+            ConsolidatedActual.account_id.in_(account_ids),
         )
     )
     actuals = result.scalars().all()
@@ -584,9 +588,13 @@ async def _get_statement_by_entity(
     )
     accounts = list(result.scalars().all())
 
-    # ── Load actuals ─────────────────────────────────────────────────
+    # ── Load actuals (filtered to statement accounts) ────────────────
+    account_ids = [a.id for a in accounts]
     result = await db.execute(
-        select(ConsolidatedActual).where(ConsolidatedActual.period_id.in_(period_ids))
+        select(ConsolidatedActual).where(
+            ConsolidatedActual.period_id.in_(period_ids),
+            ConsolidatedActual.account_id.in_(account_ids),
+        )
     )
     actuals = result.scalars().all()
 

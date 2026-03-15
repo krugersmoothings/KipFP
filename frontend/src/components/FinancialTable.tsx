@@ -20,9 +20,11 @@ interface Props {
 }
 
 function fmtAUD(n: number): string {
-  const abs = Math.abs(Math.round(n));
+  const rounded = Math.round(n);
+  // FIX(H17): check negativity on rounded value, not pre-rounded
+  const abs = Math.abs(rounded);
   const formatted = abs.toLocaleString("en-AU");
-  return n < 0 ? `(${formatted})` : formatted;
+  return rounded < 0 ? `(${formatted})` : formatted;
 }
 
 function fmtPct(n: number): string {
@@ -157,7 +159,8 @@ function RowGroup({
   const subtotalCls = row.is_subtotal
     ? "bg-muted/30 font-semibold border-t"
     : "";
-  const indent = row.indent_level > 0 ? "pl-6" : "";
+  // FIX(M40): support multi-level indentation
+  const indent = row.indent_level > 0 ? `pl-${Math.min(row.indent_level, 4) * 6}` : "";
 
   const entityCodes = Object.keys(row.entity_breakdown).sort();
 
@@ -240,11 +243,12 @@ function RowGroup({
                 return <td key={p} className={`${cellPad} border-l bg-muted/30`} />;
               }
               const val = row.entity_breakdown[ecode]?.[p] ?? 0;
+              // FIX(M41): avoid CSS class conflict — red takes precedence
               return (
                 <td
                   key={p}
-                  className={`${cellPad} text-right tabular-nums text-muted-foreground text-xs ${
-                    val < 0 ? "text-red-500" : ""
+                  className={`${cellPad} text-right tabular-nums text-xs ${
+                    val < 0 ? "text-red-500" : "text-muted-foreground"
                   } ${isSummary ? "bg-muted/30 border-l" : ""}`}
                 >
                   {fmtAUD(val)}

@@ -327,7 +327,7 @@ export default function DebtSchedulePage() {
                 }))
               }
               onSave={() => handleSaveFacility(selectedFac.id, selectedFac)}
-              isSaving={updateMutation.isPending}
+              isSaving={updateMutation.isPending && updateMutation.variables?.facilityId === selectedFac.id}
               onClose={() => setSelectedFacility(null)}
               color={
                 CHART_COLORS[
@@ -583,7 +583,7 @@ function FacilityDetail({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="text-xs text-muted-foreground block mb-1">
-                  Base Rate (decimal)
+                  Base Rate (%)
                 </label>
                 <input
                   type="text"
@@ -591,37 +591,37 @@ function FacilityDetail({
                   className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
                   placeholder={
                     fac.base_rate != null
-                      ? `${(fac.base_rate * 100).toFixed(2)}%`
-                      : "e.g. 0.065"
+                      ? `${(fac.base_rate * 100).toFixed(2)}`
+                      : "e.g. 6.50"
                   }
                   value={
                     edits.base_rate !== undefined
-                      ? String(edits.base_rate ?? "")
-                      : String(fac.base_rate ?? "")
+                      ? edits.base_rate != null ? (edits.base_rate * 100).toFixed(2) : ""
+                      : fac.base_rate != null ? (fac.base_rate * 100).toFixed(2) : ""
                   }
                   onChange={(e) => {
                     const val = parseFloat(e.target.value);
-                    onEditField("base_rate", isNaN(val) ? null : val);
+                    onEditField("base_rate", isNaN(val) ? null : val / 100);
                   }}
                 />
               </div>
               <div>
                 <label className="text-xs text-muted-foreground block mb-1">
-                  Margin (decimal)
+                  Margin (%)
                 </label>
                 <input
                   type="text"
                   inputMode="decimal"
                   className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-ring"
-                  placeholder="e.g. 0.02"
+                  placeholder="e.g. 2.00"
                   value={
                     edits.margin !== undefined
-                      ? String(edits.margin ?? "")
-                      : String(fac.margin ?? "")
+                      ? edits.margin != null ? (edits.margin * 100).toFixed(2) : ""
+                      : fac.margin != null ? (fac.margin * 100).toFixed(2) : ""
                   }
                   onChange={(e) => {
                     const val = parseFloat(e.target.value);
-                    onEditField("margin", isNaN(val) ? null : val);
+                    onEditField("margin", isNaN(val) ? null : val / 100);
                   }}
                 />
               </div>

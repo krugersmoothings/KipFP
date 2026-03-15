@@ -16,7 +16,7 @@ If this file has not been updated, the session is not complete.
 
 ---
 
-**Last updated:** 2026-03-15 (AASB16 toggle fix — query key cache invalidation on analytics pages)
+**Last updated:** 2026-03-15 (ARCHITECTURE.md generated; bug fixes through Session 4)
 
 ---
 
@@ -517,6 +517,8 @@ Base prefix: `/api/v1`
 | GET | `/reports/variance` | Variance report (actual vs budget) |
 | PUT | `/reports/commentary` | Save commentary |
 | POST | `/reports/export` | Export to xlsx |
+| POST | `/reports/management-pack` | Generate management pack Excel workbook (IS, BS, CF, Entity Summary, Assumptions, per-entity IS/BS) |
+| GET | `/reports/management-pack/versions` | List budget versions for management pack modal |
 
 ### Scenarios
 | Method | Path | Description |
@@ -671,6 +673,7 @@ Legacy redirects: `/financials/is` → `/actuals/consolidated`, `/financials/bs`
 | Blended P&L | Post-8 | Complete | Actuals + forecast stitching |
 | Opening balances | Post-8 | Complete | fy_month=0 support |
 | IC elimination rules UI | Post-8 | Complete | CRUD + preview |
+| Management Pack export | Post-8 | Complete | IS, BS, CF, Entity Summary, Assumptions, per-entity IS/BS sheets; Dashboard modal with entity/AASB16/version selectors |
 
 ## 10. Data State
 
@@ -767,6 +770,8 @@ Legacy redirects: `/financials/is` → `/actuals/consolidated`, `/financials/bs`
 ## 14. Git History (last 17 commits)
 
 ```
+7ea53a6 Session 1 C1-C8 security + data corruption fixes | CLAUDE_CONTEXT updated
+ad62cf4 Debt schedule: auto-discover facilities from BS, add history + visualisations | CLAUDE_CONTEXT updated
 abdb645 Fix broken pages, financial correctness, and remove debug code (C9-C12, H1-H3, H6, H7, H10-H11, M15)
 ce8b8aa Collapse Period and Last Closed selectors into a single Period picker
 16f7aca Fix 8 critical security and data corruption bugs (C1-C8)
@@ -787,17 +792,18 @@ f182e02 Phase 6: Full FY2024 sync + COA mapping fixes for all entities
 
 ## 15. Known Issues & Caveats
 
-- **Uncommitted changes:** Significant uncommitted work exists across backend and frontend (see git status). Includes analytics endpoints, IC rules UI, pet days, AASB16 toggle, blended P&L, site budget engine, opening balances, BigQuery connector, and several new migrations (0007–0012).
+- **Uncommitted changes:** Significant uncommitted work exists across backend and frontend (see git status). Includes analytics endpoints, IC rules UI, pet days, AASB16 toggle, blended P&L, site budget engine, opening balances, BigQuery connector, management pack export, reports API, and several new migrations (0007–0012). Sessions 3–4 bug fixes (H4–H22, M1–M10, M30) are also uncommitted.
+- **ARCHITECTURE.md:** Comprehensive architecture documentation lives at repo root. Covers data flow from source systems, consolidation engine internals, model engine, sign conventions, BS cumulative logic, and AASB16 approach. Written for new developer onboarding.
 - **Admin entities page:** `/admin/entities` is a placeholder — no CRUD UI yet.
 - **No automated tests:** No test suite exists. `pytest` referenced in README but no test files present.
 - **Secrets directory:** `secrets/bigquery-sa.json` is untracked — ensure it stays out of git. Mounted read-only at `/app/secrets` in backend and celery_worker containers. Service account: `sam-leigh-pb-proxy@petbooking-com-au.iam.gserviceaccount.com` with BigQuery User role.
 - **AASB16 toggle:** Sends `include_aasb16` as a query param on every GET request via Axios interceptor (`api.ts`). Backend endpoints respect this. **Critical:** any React Query `queryKey` for an API call affected by the toggle MUST include `includeAasb16` in the key array. The analytics timeseries endpoints use `_resolve_aasb16_for_account()` to recursively expand subtotal formulas and sum leaf-level AASB16 adjustments — this is needed because `compute_aasb16_by_account_period` only returns adjustments for leaf accounts, not KPI subtotals. **Sign convention:** For IS accounts, formula "subtract" items are ADDED (matching the consolidation engine at line 238-239 of `consolidation_engine.py`).
-- **Xero token refresh:** OAuth 2.0 tokens stored in `api_credentials`. Automatic refresh logic is in the connector but depends on valid stored credentials.
+- **Xero token refresh:** OAuth 2.0 tokens stored in `api_credentials`. Automatic refresh logic is in the connector but depends on valid stored credentials. OAuth state is now stored in Redis (H9 fix) for multi-worker safety.
 - **Multiple file copies:** Some files appear duplicated in git status with both forward-slash and backslash paths (Windows path normalisation issue). These are the same files.
 - **Opening balances:** Stored as `fy_month=0` in je_lines with `is_opening_balance=True`. Consolidation handles M00 separately. Script `import_opening_balances.py` must be run after migration 0012 and before the BS will show correct cumulative balances.
-- **Balance sheet fix (this session):** Two bugs fixed: (1) sign convention — liabilities/equity now display as positive via per-account `_display_sign`; (2) cumulative display — BS now shows point-in-time balances via `_get_bs_statement` + `_load_all_periods_through`. Excel export also updated.
+- **Balance sheet architecture:** Liabilities/equity display as positive via per-account `_display_sign`. BS shows point-in-time balances via `_get_bs_statement` + `_load_all_periods_through`. Excel export uses the same logic.
 - **Budget version management:** No UI for locking/approving versions — only draft status is used in practice.
-- **Period selector redesigned:** Two separate FY+Month dropdowns replaced with single "Jan-26" style month picker. "Last Closed Month" is now a prominent always-visible control (with lock icon, green styling). `dataPreparedToFyMonth` is the global source of truth for actuals/forecast cutoff (used by BlendedPL and CashFlow pages). The `period.ts` store exports calendar-month helpers: `fyToCalMonth`, `fyToCalYear`, `periodLabel`, `monthRange`, etc.
+- **Period selector:** Single "Jan-26" style month picker. "Last Closed Month" is a prominent always-visible control (lock icon, green styling). `dataPreparedToFyMonth` is the global source of truth for actuals/forecast cutoff (used by BlendedPL and CashFlow pages). The `period.ts` store exports calendar-month helpers: `fyToCalMonth`, `fyToCalYear`, `periodLabel`, `monthRange`, etc.
 - **Debt auto-seed:** The `GET /budgets/{id}/debt` endpoint auto-creates `DebtFacility` records from `BS-DEBT-*` accounts (excluding `BS-TOTALDEBT` subtotal) if the `debt_facilities` table is empty. Opening balances come from `consolidated_actuals` (group totals). Facility type is inferred from account code/name (EQUIP → equipment_loan, VEHICLE → vehicle_loan, else property_loan). Entity is determined by the entity with the highest absolute balance for that account. Historical balance data and implied amortisation are derived from consolidated_actuals movements over time.
 - **Site rollup monthly fix:** `site_rollup_service.py` was patched to handle monthly-grain entries (`week_id=None`) by reading `fy_month` from `driver_params`. Previously these entries were silently skipped.
 - **Model engine fixes (C2+C3):** C2 fix: site revenue now reads monthly field `str(fy_month)` from assumption value dict instead of always-zero `"value"` field. C3 fix: BS opening balances (cash, PPE, retained earnings) now sum all prior-year months via `prior_closing` dict for cumulative closing balance, instead of reading just month 12's monthly activity.
@@ -810,7 +816,10 @@ f182e02 Phase 6: Full FY2024 sync + COA mapping fixes for all entities
 - **ConsolidatedActual model:** The `include_aasb16` column was removed from the SQLAlchemy model (was added as FIX C4 but never migrated to DB, causing `UndefinedColumnError` on all queries). AASB16 filtering uses the `compute_aasb16_by_account_period` helper approach instead.
 - **Drill-down modal:** `DrillDownModal.tsx` is a slide-over panel. Clicking any non-subtotal cell in `FinancialTable` opens it via `onCellClick` callback. Shows entity-level breakdown from `GET /consolidated/drilldown`. Each entity row links to NetSuite TB report via `GET /entities/netsuite-urls`.
 - **Blended Cash Flow:** `CashFlow.tsx` at `/actuals/cashflow`. Backend endpoint `GET /consolidated/cf/blended` returns actual BS-CASH balances for closed months and forecast CF-OPERATING/CF-INVESTING/CF-FINANCING/CF-NET + BS-CASH from ModelOutput for future months. Net CF for actual months is derived from BS-CASH month-to-month deltas.
-- **Full bug audit:** `BUGS.md` contains a comprehensive 115-issue audit (12 Critical, 22 High, 45 Medium, 36 Low). Fixes applied so far are tracked below.
+- **Full bug audit:** `BUGS.md` contains a comprehensive 115-issue audit (12 Critical, 22 High, 45 Medium, 36 Low). All Critical (C1–C12) and High (H1–H22) items are now fixed. ~65 Medium + Low items remain.
+- **Consolidation method filtering:** Consolidation engine now filters entities by `consolidation_method == 'full'` (H4 fix). Equity-method and excluded entities are no longer incorrectly included.
+- **RoleGuard hardened:** Unknown roles resolve to level -1, denied by default (H15). Redirects to /login when user null and no token (H16).
+- **AASB16 toggle state:** Not persisted across page refreshes (M43 — unfixed). Always resets to `true`.
 
 ## 16. Bug Fix Tracker
 
@@ -841,20 +850,53 @@ Fixes are tracked against `BUGS.md` audit IDs. C = Critical, H = High, M = Mediu
 | H11 | Debug file I/O removed from consolidation engine | abdb645 |
 | M15 | Model engine subtotal sign matches consolidation (add for P&L) | abdb645 |
 
-### Not yet fixed (high priority remaining)
+### Fixed (Session 3 — uncommitted)
 
 | ID | Summary |
 |----|---------|
-| H4 | Consolidation ignores entity `consolidation_method` |
-| H5 | Consolidation run created with bogus `period_id` |
-| H8 | AASB16 helpers load mappings without effective-date filtering |
-| H9 | In-memory OAuth state storage breaks multi-worker |
-| H12 | CSV export contribution formula omits 5 cost categories |
-| H13 | Weekly override save nulls the other override field |
-| H15 | RoleGuard silently grants access for unknown roles |
-| H16 | RoleGuard shows blank screen when user is null without token |
-| H17 | `fmtAUD` shows "(0)" for small negative values |
-| H22 | BigQuery sync blocks async event loop |
+| H5 | Consolidation run uses actual `period.id` as FK (no placeholder) |
+| H8 | AASB16 helpers filter account mappings by effective date |
+| H9 | OAuth state moved to Redis (shared across workers) |
+
+### Fixed (Session 4 — uncommitted)
+
+| ID | Summary |
+|----|---------|
+| H4 | Consolidation filters entities by `consolidation_method == 'full'` |
+| H12 | CSV export contribution subtracts all 8 cost categories |
+| H13 | Weekly override save only sends the edited field |
+| H14 | Already fixed — correct URL and fy_year param |
+| H15 | Unknown roles resolve to level -1, denied by default |
+| H16 | RoleGuard redirects to /login when user null and no token |
+| H17 | fmtAUD rounds before sign check |
+| H18 | All sidebar NavLink use end prop |
+| H19 | Already consistent — schedule table columns match |
+| H20 | Debt rate inputs display/accept percentage |
+| H21 | PctField NaN guard added |
+| H22 | BigQuery sync wrapped in run_in_executor |
+| M1 | Consolidated IS/BS queries filter by account_id |
+| M2 | SyncRun includes started_at timestamp |
+| M3 | Entity existence validated before FK insert |
+| M4 | Consolidation trigger returns real uuid4 run ID |
+| M5 | Model output full-year filters fy_month >= 1 |
+| M6 | Site assumption save checks assumptions_locked |
+| M7 | Rollup failure raises HTTP 500 |
+| M8 | Import fuzzy matching requires unique candidate |
+| M9 | Location performance filters fy_month >= 1 |
+| M10 | Scenario compare catches ValueError on bad UUID |
+| M30 | CSV download anchor appended to DOM for Firefox |
+
+### Remaining unfixed
+
+~65 Medium + Low items remain in BUGS.md. All Critical and High items are now fixed. Notable remaining items:
+- M11: Scenario compare assumes same FY year
+- M16: Debt engine ignores `interest_calc_method`
+- M17: P&I loans carry residual balance past maturity
+- M19: Xero sync hardcodes `is_aasb16=False`
+- M21: BigQuery connector SQL injection risk (f-string dates)
+- M43: AASB16 toggle state not persisted across refresh
+- L1: Hardcoded `baseURL` in api.ts
+- L25: No password strength validation
 
 ## 17. Key Sign Conventions
 
@@ -891,7 +933,7 @@ The balance sheet display differs from the income statement in two critical ways
 - The consolidation engine processes `fy_month=0` like any other period (maps through account_mappings → consolidated_actuals).
 - `import_opening_balances.py` is the script to run the one-time import.
 
-## 17. Deviations from Original Spec
+## 19. Deviations from Original Spec
 
 - **Weekly granularity for site budgets** was not in the original spec but was added post-v1.0 to support operational-level budgeting at each Kip location.
 - **BigQuery connector** was added post-spec to bring in PetBooking pet-day and revenue data for the site budget engine.
@@ -903,3 +945,12 @@ The balance sheet display differs from the income statement in two critical ways
 - **Route restructure:** Original routes used `/financials/*` and `/sync/*`; restructured to `/actuals/*` with legacy redirects preserved.
 - **Budget assumptions by location:** Revenue, COGS, Employment, Other Opex, and Capex assumptions are entered per **location** (not per entity/subsidiary). Tax assumptions remain per **subsidiary**. The `ModelAssumption` table uses `location_id` for location-based rows and `entity_id` for tax rows. The `AssumptionPayload` schema carries both `entity_id` and `location_id`; the backend matches on both when upserting. A `GET /entities/locations` endpoint was added to serve the locations list to the frontend.
 - **Debt schedule auto-discovery:** The original spec assumed `debt_facilities` would be manually populated. The endpoint now auto-seeds from BS-DEBT-* COA accounts with balances from consolidated_actuals. The response changed from `list[DebtFacilityRead]` to `DebtSummary` (wrapping facilities with summary totals + history). Frontend was rebuilt with Recharts visualisations (stacked area, bar charts, sparklines) and a click-to-expand detail panel.
+- **Management Pack export:** Board-ready Excel workbook generated via `POST /reports/management-pack`. Assembles existing consolidated data into 5+ sheets: IS (with GM%/EBITDA%/NPAT% margins across FY2024/FY2025/YTD/FYE Est/Budget/FY2027), BS (cumulative at 30-Jun + YTD), CF (indirect method), Entity Summary (one row per entity), Assumptions (from ModelAssumption table), plus per-entity standalone IS/BS sheets. Uses navy header (#1F3D6E) formatting, subtotal shading, red negatives, freeze panes, coloured tabs. Frontend modal on Dashboard with entity/AASB16/budget-version selectors. FYE estimate blends actual M1-7 + budget M8-12 (or trailing-3-month average if no budget). Supports single-entity filtering.
+
+## 20. Related Documentation
+
+| Document | Purpose |
+|----------|---------|
+| `ARCHITECTURE.md` | Comprehensive architecture guide for new developers — data flow, engine internals, sign conventions |
+| `BUGS.md` | Full 115-issue audit with severity ratings and fix status |
+| `CLAUDE_CONTEXT.md` | This file — AI session context, updated after every session |

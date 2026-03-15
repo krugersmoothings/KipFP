@@ -145,14 +145,20 @@ async def calculate_wc_schedule(
 
 
 def _seasonal_factor(drv: WcDriver, period_index: int) -> Decimal:
-    """Pull seasonal multiplier for a given period index (0-11)."""
+    """Pull seasonal multiplier for a given period index (0-11).
+
+    Dict keys are 1-based (matching fy_month convention).
+    """
     if not drv.seasonal_factors:
         return Decimal("1")
     factors = drv.seasonal_factors
     if isinstance(factors, list) and period_index < len(factors):
         return Decimal(str(factors[period_index]))
     if isinstance(factors, dict):
-        val = factors.get(str(period_index + 1)) or factors.get(str(period_index))
+        # FIX(L32): prefer 1-based key (canonical); fall back to 0-based only
+        val = factors.get(str(period_index + 1))
+        if val is None:
+            val = factors.get(str(period_index))
         if val is not None:
             return Decimal(str(val))
     return Decimal("1")

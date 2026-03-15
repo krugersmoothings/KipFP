@@ -73,16 +73,18 @@ export default function BlendedPL() {
         </div>
       </div>
 
-      {/* Legend */}
+      {/* Legend — FIX(L5): hide forecast legend when all 12 months are actuals */}
       <div className="flex items-center gap-4 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <span className="inline-block h-2.5 w-2.5 rounded-sm bg-emerald-500" />
           Actuals (to {closedLabel})
         </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block h-2.5 w-2.5 rounded-sm bg-blue-500" />
-          Forecast
-        </span>
+        {lastActualMonth < 12 && (
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-sm bg-blue-500" />
+            Forecast
+          </span>
+        )}
       </div>
 
       {blended.isLoading && (

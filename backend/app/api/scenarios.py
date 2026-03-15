@@ -204,7 +204,10 @@ async def compare_scenarios(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(require_finance),
 ):
-    id_list = [uuid.UUID(s.strip()) for s in ids.split(",") if s.strip()]
+    try:
+        id_list = [uuid.UUID(s.strip()) for s in ids.split(",") if s.strip()]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="One or more scenario IDs are not valid UUIDs")
     if len(id_list) > 5:
         raise HTTPException(status_code=400, detail="Maximum 5 scenarios for comparison")
 
@@ -217,11 +220,12 @@ async def compare_scenarios(
     if not versions:
         raise HTTPException(status_code=404, detail="No versions found")
 
+    # FIX(M11): load periods for ALL FY years represented by the selected versions
+    fy_years = {v.fy_year for v in versions.values()}
     fy_year = next(iter(versions.values())).fy_year
 
-    # Load periods
     result = await db.execute(
-        select(Period).where(Period.fy_year == fy_year).order_by(Period.fy_month)
+        select(Period).where(Period.fy_year.in_(fy_years)).order_by(Period.fy_month)
     )
     periods = list(result.scalars().all())
     period_ids = [p.id for p in periods]

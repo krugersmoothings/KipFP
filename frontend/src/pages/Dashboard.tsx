@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import {
   BarChart,
   Bar,
@@ -23,9 +23,13 @@ import {
   RefreshCw,
   Loader2,
   AlertTriangle,
+  FileSpreadsheet,
+  X,
+  Download,
 } from "lucide-react";
 import api from "@/utils/api";
 import { usePeriodStore } from "@/stores/period";
+import { useAppStore } from "@/stores/app";
 import FinancialTable from "@/components/FinancialTable";
 import type {
   DashboardKPIs,
@@ -33,6 +37,7 @@ import type {
   FinancialRow,
   TimeSeriesPoint,
   LocationPerformanceRow,
+  EntityRead,
 } from "@/types/api";
 
 function fmtAUD(n: number): string {
@@ -75,8 +80,160 @@ function trailingRange(fyYear: number, fyMonth: number, months: number) {
   return { fromFyYear: fromYear, fromFyMonth: fromMonth, toFyYear: fyYear, toFyMonth: fyMonth };
 }
 
+interface PackVersion {
+  id: string;
+  name: string;
+  fy_year: number;
+  status: string;
+}
+
+function ManagementPackModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { fyYear, fyMonth } = usePeriodStore();
+  const { includeAasb16 } = useAppStore();
+  const [entityId, setEntityId] = useState<string>("");
+  const [aasb16, setAasb16] = useState(includeAasb16);
+  const [versionId, setVersionId] = useState<string>("");
+
+  const entities = useQuery<EntityRead[]>({
+    queryKey: ["entities-pack"],
+    queryFn: async () => (await api.get("/api/v1/entities/")).data,
+    enabled: open,
+  });
+
+  const versions = useQuery<PackVersion[]>({
+    queryKey: ["pack-versions"],
+    queryFn: async () => (await api.get("/api/v1/reports/management-pack/versions")).data,
+    enabled: open,
+  });
+
+  const download = useMutation({
+    mutationFn: async () => {
+      const res = await api.post(
+        "/api/v1/reports/management-pack",
+        {
+          entity_id: entityId || null,
+          include_aasb16: aasb16,
+          periods: {
+            prior2_fy_year: fyYear - 2,
+            prior1_fy_year: fyYear - 1,
+            ytd_fy_year: fyYear,
+            ytd_to_month: fyMonth,
+            forecast_fy_year: fyYear,
+            budget_version_id: versionId || null,
+          },
+        },
+        { responseType: "blob" },
+      );
+      const blob = new Blob([res.data], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const disposition = res.headers["content-disposition"] || "";
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      const filename = match?.[1] || `KipGroup_ManagementPack.xlsx`;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
+  });
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="w-full max-w-md rounded-lg border bg-card p-6 shadow-xl">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-lg font-semibold">Management Pack Export</h2>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">Entity</label>
+            <select
+              value={entityId}
+              onChange={(e) => setEntityId(e.target.value)}
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+            >
+              <option value="">All (Consolidated)</option>
+              {entities.data?.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.code} — {e.name || e.code}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">AASB16 Treatment</label>
+            <select
+              value={aasb16 ? "statutory" : "exlease"}
+              onChange={(e) => setAasb16(e.target.value === "statutory")}
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+            >
+              <option value="statutory">Statutory (incl. leases)</option>
+              <option value="exlease">Ex-lease</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Budget Version</label>
+            <select
+              value={versionId}
+              onChange={(e) => setVersionId(e.target.value)}
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+            >
+              <option value="">Auto-detect</option>
+              {versions.data?.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name} (FY{v.fy_year} — {v.status})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="rounded-md border bg-muted/50 p-3 text-xs text-muted-foreground">
+            <p>
+              Exports FY{fyYear - 2}, FY{fyYear - 1}, FY{fyYear} YTD to M
+              {String(fyMonth).padStart(2, "0")}, and FYE estimate.
+              {!entityId && " Includes per-entity IS/BS breakdown sheets."}
+            </p>
+          </div>
+
+          {download.isError && (
+            <p className="text-sm text-destructive">
+              Export failed. Check console for details.
+            </p>
+          )}
+
+          <button
+            onClick={() => download.mutate()}
+            disabled={download.isPending}
+            className="flex w-full items-center justify-center gap-2 rounded-md bg-[#1F3D6E] px-4 py-2.5 text-sm font-medium text-white hover:bg-[#2a5090] disabled:opacity-50"
+          >
+            {download.isPending ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            {download.isPending ? "Generating..." : "Download Management Pack"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 export default function Dashboard() {
   const { fyYear, fyMonth } = usePeriodStore();
+  const [packOpen, setPackOpen] = useState(false);
 
   const kpis = useQuery<DashboardKPIs>({
     queryKey: ["dashboard-kpis", fyYear, fyMonth],
@@ -189,12 +346,23 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground">
-          FY{fyYear} &middot; M{String(fyMonth).padStart(2, "0")} overview
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
+          <p className="text-muted-foreground">
+            FY{fyYear} &middot; M{String(fyMonth).padStart(2, "0")} overview
+          </p>
+        </div>
+        <button
+          onClick={() => setPackOpen(true)}
+          className="flex items-center gap-2 rounded-md bg-[#1F3D6E] px-4 py-2 text-sm font-medium text-white hover:bg-[#2a5090]"
+        >
+          <FileSpreadsheet className="h-4 w-4" />
+          Management Pack
+        </button>
       </div>
+
+      <ManagementPackModal open={packOpen} onClose={() => setPackOpen(false)} />
 
       {kpis.isLoading && (
         <div className="flex items-center justify-center py-12">

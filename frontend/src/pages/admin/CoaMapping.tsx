@@ -76,6 +76,9 @@ export default function CoaMapping() {
     try {
       const res = await api.post("/api/v1/coa/validate");
       setValidationResult(res.data);
+    } catch {
+      // FIX(M35): surface validation errors
+      alert("Validation failed — please try again.");
     } finally {
       setValidating(false);
     }
@@ -83,8 +86,10 @@ export default function CoaMapping() {
 
   const handleSelect = (acct: SourceAccountRead) => {
     setSelected(acct);
+    // FIX(M34): reset effectiveFrom when selecting a new source account
     setTargetId("");
     setMultiplier("1.0");
+    setEffectiveFrom(null);
     setNotes("");
   };
 

@@ -1,8 +1,9 @@
 import axios from "axios";
 import { useAppStore } from "@/stores/app";
 
+// FIX(L1): use env var for base URL instead of hardcoded localhost
 const api = axios.create({
-  baseURL: "http://localhost:8000",
+  baseURL: import.meta.env.VITE_API_BASE_URL || "http://localhost:8000",
   headers: { "Content-Type": "application/json" },
 });
 
@@ -12,9 +13,9 @@ api.interceptors.request.use((config) => {
     config.headers.Authorization = `Bearer ${token}`;
   }
 
-  // FIX(C8): only inject include_aasb16 as a query param on GET — spreading into POST/PUT bodies corrupts FormData and arrays
+  // FIX(L2): use lowercase comparison (axios normalises to lowercase)
   const { includeAasb16 } = useAppStore.getState();
-  if (!includeAasb16 && config.method?.toLowerCase() === "get") {
+  if (!includeAasb16 && config.method === "get") {
     config.params = { ...config.params, include_aasb16: false };
   }
 
@@ -25,8 +26,18 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     if (error.response?.status === 401) {
-      localStorage.removeItem("access_token");
-      window.location.href = "/login";
+      // FIX(L4): don't redirect if already on the login page
+      if (window.location.pathname !== "/login") {
+        localStorage.removeItem("access_token");
+        // FIX(L3): also clear the Zustand auth store
+        try {
+          const { useAuthStore } = await import("@/stores/auth");
+          useAuthStore.getState().logout?.();
+        } catch {
+          // auth store may not be available during startup
+        }
+        window.location.href = "/login";
+      }
     }
     return Promise.reject(error);
   }
