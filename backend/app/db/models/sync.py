@@ -3,6 +3,7 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    Boolean,
     DateTime,
     Enum,
     ForeignKey,
@@ -40,7 +41,7 @@ class SyncRun(Base):
         UUID(as_uuid=True), ForeignKey("entities.id")
     )
     source_system: Mapped[str | None] = mapped_column(
-        Enum("netsuite", "xero", name="source_system", create_type=False)
+        Enum("netsuite", "xero", "bigquery", name="source_system", create_type=False)
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -60,8 +61,8 @@ class JeLine(Base):
         Index("ix_je_lines_entity_period", "entity_id", "period_id"),
         Index("ix_je_lines_source_account", "source_account_code"),
         UniqueConstraint(
-            "entity_id", "period_id", "source_account_code",
-            name="uq_je_lines_entity_period_account",
+            "entity_id", "period_id", "source_account_code", "is_aasb16",
+            name="uq_je_lines_entity_period_account_aasb16",
         ),
     )
 
@@ -89,4 +90,10 @@ class JeLine(Base):
     )
     location_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("locations.id")
+    )
+    is_aasb16: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    is_opening_balance: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
     )

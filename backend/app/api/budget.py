@@ -825,6 +825,11 @@ SITE_LINE_ITEMS = [
     "direct_wages",
     "direct_costs",
     "rent",
+    "utilities",
+    "repairs_maintenance",
+    "it_systems",
+    "general_admin",
+    "advertising",
 ]
 
 SITE_LINE_LABELS = {
@@ -834,6 +839,11 @@ SITE_LINE_LABELS = {
     "direct_wages": "Direct Wages",
     "direct_costs": "Direct Costs",
     "rent": "Rent",
+    "utilities": "Utilities",
+    "repairs_maintenance": "Repairs & Maintenance",
+    "it_systems": "IT & Systems",
+    "general_admin": "General & Admin",
+    "advertising": "Advertising",
 }
 
 

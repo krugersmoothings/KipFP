@@ -13,6 +13,7 @@ class SourceSystem(str, enum.Enum):
     netsuite = "netsuite"
     xero = "xero"
     manual = "manual"
+    bigquery = "bigquery"
 
 
 class CoaType(str, enum.Enum):

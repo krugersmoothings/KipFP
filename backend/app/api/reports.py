@@ -9,16 +9,17 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_db, require_finance
-from app.db.models.account import Account, AccountType, Statement
+from app.db.models.account import Account, AccountType, NormalBalance, Statement
 from app.db.models.budget import BudgetVersion, ModelOutput, ReportCommentary
 from app.db.models.consolidation import ConsolidatedActual
 from app.db.models.entity import Entity
 from app.db.models.period import Period
 from app.db.models.user import User
+from app.services.aasb16_helpers import compute_aasb16_by_account_period
 from app.schemas.reports import (
     CommentaryPayload,
     CommentaryRead,
@@ -61,10 +62,10 @@ def _compute_variance(actual: float, budget: float, is_expense: bool) -> tuple[f
     var_pct = (var_abs / budget * 100) if budget != 0 else None
     if budget == 0 and actual == 0:
         is_fav = None
-    elif is_expense:
-        is_fav = actual < budget
     else:
-        is_fav = actual > budget
+        # Credit-normal convention: lower value is favourable for both
+        # income (more negative = higher revenue) and expenses (lower cost).
+        is_fav = actual < budget
     return var_abs, var_pct, is_fav
 
 
@@ -76,6 +77,7 @@ async def get_variance_report(
     fy_year: int = Query(...),
     fy_month: int | None = Query(None, description="Omit or pass 0 for YTD; -1 for full year"),
     version_id: uuid.UUID = Query(...),
+    include_aasb16: bool = Query(True),
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(require_finance),
 ):
@@ -98,25 +100,46 @@ async def get_variance_report(
     elif fy_month is not None and fy_month == -1:
         view_mode = "full_year"
         result = await db.execute(
-            select(Period).where(Period.fy_year == fy_year).order_by(Period.fy_month)
+            select(Period)
+            .where(Period.fy_year == fy_year, Period.fy_month >= 1)
+            .order_by(Period.fy_month)
         )
         all_periods = list(result.scalars().all())
         period_ids = [p.id for p in all_periods]
         period_label = f"FY{fy_year} Full Year"
     else:
         view_mode = "ytd"
+        latest_result = await db.execute(
+            select(func.max(Period.fy_month))
+            .join(ConsolidatedActual, ConsolidatedActual.period_id == Period.id)
+            .where(
+                Period.fy_year == fy_year,
+                Period.fy_month >= 1,
+                ConsolidatedActual.is_group_total.is_(True),
+            )
+        )
+        ytd_cutoff = latest_result.scalar() or 12
         result = await db.execute(
-            select(Period).where(Period.fy_year == fy_year).order_by(Period.fy_month)
+            select(Period)
+            .where(Period.fy_year == fy_year, Period.fy_month >= 1, Period.fy_month <= ytd_cutoff)
+            .order_by(Period.fy_month)
         )
         all_periods = list(result.scalars().all())
         period_ids = [p.id for p in all_periods]
-        period_label = f"FY{fy_year} YTD"
+        period_label = f"FY{fy_year} YTD M{ytd_cutoff:02d}"
 
     # Load prior year periods for PCP comparison
     prior_fy = fy_year - 1
     if view_mode == "monthly" and fy_month:
         pcp_result = await db.execute(
             select(Period).where(Period.fy_year == prior_fy, Period.fy_month == fy_month)
+        )
+        pcp_periods = list(pcp_result.scalars().all())
+    elif view_mode == "ytd":
+        pcp_result = await db.execute(
+            select(Period).where(
+                Period.fy_year == prior_fy, Period.fy_month >= 1, Period.fy_month <= ytd_cutoff,
+            ).order_by(Period.fy_month)
         )
         pcp_periods = list(pcp_result.scalars().all())
     else:
@@ -147,6 +170,14 @@ async def get_variance_report(
         )
         for act in result.scalars().all():
             actual_totals[act.account_id] += float(act.amount)
+
+    # AASB16 adjustment on actuals
+    if not include_aasb16 and period_ids:
+        aasb16_adj = await compute_aasb16_by_account_period(db, period_ids)
+        for acct_id in account_ids:
+            if acct_id in aasb16_adj:
+                for pid in period_ids:
+                    actual_totals[acct_id] -= aasb16_adj[acct_id].get(pid, 0.0)
 
     # Load budget outputs
     budget_totals: dict[uuid.UUID, float] = defaultdict(float)
@@ -312,9 +343,11 @@ async def export_report(
     pct_fmt = "0.0%"
     thin_border = Border(bottom=Side(style="thin", color="CCCCCC"))
 
-    # Load periods
+    # Load periods (exclude fy_month=0 opening-balance periods)
     result = await db.execute(
-        select(Period).where(Period.fy_year == payload.fy_year).order_by(Period.fy_month)
+        select(Period)
+        .where(Period.fy_year == payload.fy_year, Period.fy_month >= 1)
+        .order_by(Period.fy_month)
     )
     periods = list(result.scalars().all())
     period_ids = [p.id for p in periods]
@@ -327,6 +360,7 @@ async def export_report(
         await _export_variance_sheets(
             wb, db, payload.version_id, payload.fy_year, periods, period_ids, period_labels,
             header_font, header_fill, subtotal_font, number_fmt, pct_fmt, thin_border,
+            include_aasb16=payload.include_aasb16,
         )
     elif payload.type == "budget" and payload.version_id:
         for stmt, stmt_label in [("is", "Income Statement"), ("bs", "Balance Sheet"), ("cf", "Cash Flow")]:
@@ -340,6 +374,7 @@ async def export_report(
             await _export_actuals_sheet(
                 wb, db, stmt, stmt_label, period_ids, period_labels,
                 header_font, header_fill, subtotal_font, number_fmt, thin_border,
+                include_aasb16=payload.include_aasb16,
             )
     else:
         raise HTTPException(status_code=400, detail="Invalid export type or missing version_id")
@@ -357,7 +392,8 @@ async def export_report(
 
 
 async def _export_variance_sheets(wb, db, version_id, fy_year, periods, period_ids, period_labels,
-                                  header_font, header_fill, subtotal_font, number_fmt, pct_fmt, thin_border):
+                                  header_font, header_fill, subtotal_font, number_fmt, pct_fmt, thin_border,
+                                  include_aasb16: bool = True):
     from openpyxl.styles import Alignment
 
     result = await db.execute(
@@ -376,6 +412,13 @@ async def _export_variance_sheets(wb, db, version_id, fy_year, periods, period_i
     )
     for act in result.scalars().all():
         actual_by_acct[act.account_id] += float(act.amount)
+
+    if not include_aasb16 and period_ids:
+        aasb16_adj = await compute_aasb16_by_account_period(db, period_ids)
+        for acct_id in account_ids:
+            if acct_id in aasb16_adj:
+                for pid in period_ids:
+                    actual_by_acct[acct_id] -= aasb16_adj[acct_id].get(pid, 0.0)
 
     budget_by_acct: dict[uuid.UUID, float] = defaultdict(float)
     result = await db.execute(
@@ -402,8 +445,9 @@ async def _export_variance_sheets(wb, db, version_id, fy_year, periods, period_i
 
     row_idx = 2
     for acct in accounts:
-        actual = actual_by_acct.get(acct.id, 0)
-        budget = budget_by_acct.get(acct.id, 0)
+        sign = -1.0  # IS accounts stored credit-normal; flip for display
+        actual = actual_by_acct.get(acct.id, 0) * sign
+        budget = budget_by_acct.get(acct.id, 0) * sign
         var = actual - budget
         var_pct = var / budget if budget != 0 else 0
 
@@ -482,7 +526,8 @@ async def _export_budget_sheet(wb, db, version_id, stmt_key, stmt_label,
 
 
 async def _export_actuals_sheet(wb, db, stmt_key, stmt_label, period_ids, period_labels,
-                                header_font, header_fill, subtotal_font, number_fmt, thin_border):
+                                header_font, header_fill, subtotal_font, number_fmt, thin_border,
+                                include_aasb16: bool = True):
     from openpyxl.styles import Alignment
 
     statement = Statement.is_ if stmt_key == "is" else Statement.bs
@@ -492,16 +537,61 @@ async def _export_actuals_sheet(wb, db, stmt_key, stmt_label, period_ids, period
     accounts = list(result.scalars().all())
     account_ids = [a.id for a in accounts]
 
+    is_bs = statement == Statement.bs
+
+    # For BS we need all historical periods to compute cumulative balances.
+    if is_bs:
+        fy_periods = await db.execute(
+            select(Period).where(Period.id.in_(period_ids)).order_by(Period.fy_month)
+        )
+        fy_period_list = list(fy_periods.scalars().all())
+        if fy_period_list:
+            fy_year = fy_period_list[0].fy_year
+            max_fy_month = fy_period_list[-1].fy_month
+        else:
+            fy_year, max_fy_month = 0, 12
+        hist_result = await db.execute(
+            select(Period).where(
+                (Period.fy_year < fy_year)
+                | ((Period.fy_year == fy_year) & (Period.fy_month <= max_fy_month))
+            ).order_by(Period.fy_year, Period.fy_month)
+        )
+        all_hist_periods = list(hist_result.scalars().all())
+        all_hist_ids = [p.id for p in all_hist_periods]
+        query_period_ids = all_hist_ids
+    else:
+        query_period_ids = period_ids
+
     amounts: dict[tuple[uuid.UUID, uuid.UUID], float] = {}
     result = await db.execute(
         select(ConsolidatedActual).where(
-            ConsolidatedActual.period_id.in_(period_ids),
+            ConsolidatedActual.period_id.in_(query_period_ids),
             ConsolidatedActual.is_group_total.is_(True),
             ConsolidatedActual.account_id.in_(account_ids),
         )
     )
     for act in result.scalars().all():
         amounts[(act.account_id, act.period_id)] = float(act.amount)
+
+    if not include_aasb16 and query_period_ids:
+        aasb16_adj = await compute_aasb16_by_account_period(db, query_period_ids)
+        for acct_id in account_ids:
+            if acct_id in aasb16_adj:
+                for pid in query_period_ids:
+                    adj_key = (acct_id, pid)
+                    adj_val = aasb16_adj[acct_id].get(pid, 0.0)
+                    if adj_val != 0:
+                        amounts[adj_key] = amounts.get(adj_key, 0.0) - adj_val
+
+    # For BS, pre-compute cumulative sums at each display period.
+    if is_bs:
+        cum_amounts: dict[tuple[uuid.UUID, uuid.UUID], float] = {}
+        for acct in accounts:
+            running = 0.0
+            for hp in all_hist_periods:
+                running += amounts.get((acct.id, hp.id), 0.0)
+                if hp.id in set(period_ids):
+                    cum_amounts[(acct.id, hp.id)] = running
 
     ws = wb.create_sheet(title=stmt_label)
     headers = ["Account"] + period_labels
@@ -516,9 +606,19 @@ async def _export_actuals_sheet(wb, db, stmt_key, stmt_label, period_ids, period
 
     row_idx = 2
     for acct in accounts:
+        if statement == Statement.is_:
+            sign = -1.0
+        elif acct.normal_balance == NormalBalance.credit:
+            sign = -1.0
+        else:
+            sign = 1.0
+
         ws.cell(row=row_idx, column=1, value=f"{'  ' if not acct.is_subtotal else ''}{acct.name}")
         for pi, pid in enumerate(period_ids):
-            val = amounts.get((acct.id, pid), 0)
+            if is_bs:
+                val = cum_amounts.get((acct.id, pid), 0) * sign
+            else:
+                val = amounts.get((acct.id, pid), 0) * sign
             c = ws.cell(row=row_idx, column=2 + pi, value=round(val, 2))
             c.number_format = number_fmt
         if acct.is_subtotal:

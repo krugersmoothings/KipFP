@@ -16,7 +16,7 @@ export default function BlendedPL() {
   const versions = useQuery<BudgetVersion[]>({
     queryKey: ["budget-versions", fyYear],
     queryFn: async () => {
-      const { data } = await api.get("/api/v1/budget/versions", {
+      const { data } = await api.get("/api/v1/budgets/", {
         params: { fy_year: fyYear },
       });
       return data;

@@ -30,6 +30,11 @@ SITE_LINE_ITEMS = [
     "direct_wages",
     "direct_costs",
     "rent",
+    "utilities",
+    "repairs_maintenance",
+    "it_systems",
+    "general_admin",
+    "advertising",
 ]
 
 REVENUE_LINES = {"boarding_revenue", "grooming_revenue", "other_revenue"}
@@ -112,11 +117,10 @@ async def rollup_sites_to_entity(
         if entry.week_id and entry.week_id in week_proration:
             fy_month, factor = week_proration[entry.week_id]
             prorated = amount * factor
+        elif entry.driver_params and "fy_month" in entry.driver_params:
+            fy_month = int(entry.driver_params["fy_month"])
+            prorated = amount
         else:
-            # Monthly entry (no week_id) — find fy_month from period
-            # For monthly entries, store directly by fy_month
-            # The SiteBudgetEntry might have a direct period mapping
-            # If week_id is None, skip proration
             continue
 
         aggregated[(entity_id, fy_month, line_item)] += prorated

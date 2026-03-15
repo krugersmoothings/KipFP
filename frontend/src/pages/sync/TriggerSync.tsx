@@ -10,8 +10,10 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import api from "@/utils/api";
+import { usePeriodStore } from "@/stores/period";
 
 export default function TriggerSync() {
+  const { fyYear, fyMonth } = usePeriodStore();
   const [entityId, setEntityId] = useState("");
   const [source, setSource] = useState<"netsuite" | "xero">("xero");
   const [loading, setLoading] = useState(false);
@@ -24,7 +26,10 @@ export default function TriggerSync() {
     setResult(null);
     setError(null);
     try {
-      const { data } = await api.post(`/api/v1/sync/${source}/${entityId}`);
+      const { data } = await api.post(`/api/v1/sync/${source}/${entityId}`, {
+        fy_year: fyYear,
+        fy_month: fyMonth,
+      });
       setResult(`Sync queued — run ID: ${data.sync_run_id}`);
     } catch {
       setError("Failed to trigger sync. Check the entity ID and try again.");

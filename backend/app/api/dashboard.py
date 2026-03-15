@@ -86,17 +86,18 @@ async def get_dashboard_kpis(
     )
     pcp = result.scalar_one_or_none()
 
-    revenue_mtd = await _acct_amount(db, KPI_CODES["revenue"], period.id)
-    revenue_pcp = await _acct_amount(db, KPI_CODES["revenue"], pcp.id) if pcp else 0
+    # P&L accounts are credit-normal (stored negative) — negate for display
+    revenue_mtd = -await _acct_amount(db, KPI_CODES["revenue"], period.id)
+    revenue_pcp = -await _acct_amount(db, KPI_CODES["revenue"], pcp.id) if pcp else 0
 
-    gm_mtd = await _acct_amount(db, KPI_CODES["gm"], period.id)
+    gm_mtd = -await _acct_amount(db, KPI_CODES["gm"], period.id)
     gm_pct = (gm_mtd / revenue_mtd * 100) if revenue_mtd else None
 
-    gm_pcp_val = await _acct_amount(db, KPI_CODES["gm"], pcp.id) if pcp else 0
+    gm_pcp_val = -await _acct_amount(db, KPI_CODES["gm"], pcp.id) if pcp else 0
     gm_pct_pcp = (gm_pcp_val / revenue_pcp * 100) if revenue_pcp else None
 
-    ebitda_mtd = await _acct_amount(db, KPI_CODES["ebitda"], period.id)
-    ebitda_ytd = await _ytd_amount(db, KPI_CODES["ebitda"], ytd_ids)
+    ebitda_mtd = -await _acct_amount(db, KPI_CODES["ebitda"], period.id)
+    ebitda_ytd = -await _ytd_amount(db, KPI_CODES["ebitda"], ytd_ids)
 
     net_cash = await _acct_amount(db, KPI_CODES["cash"], period.id)
     total_debt = await _acct_amount(db, KPI_CODES["debt"], period.id)

@@ -19,6 +19,7 @@ export default function Login() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const setToken = useAuthStore((s) => s.setToken);
+  const fetchUser = useAuthStore((s) => s.fetchUser);
   const navigate = useNavigate();
 
   const handleSubmit = async (e: FormEvent) => {
@@ -31,6 +32,7 @@ export default function Login() {
         password,
       });
       setToken(data.access_token);
+      await fetchUser();
       navigate("/");
     } catch {
       setError("Invalid email or password");

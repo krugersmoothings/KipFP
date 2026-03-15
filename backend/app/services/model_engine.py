@@ -445,6 +445,7 @@ def _calculate_subtotals(
     subtotals = [a for a in all_accounts if a.is_subtotal and a.subtotal_formula]
 
     for acct in subtotals:
+        is_pl = acct.statement and acct.statement.value == "is"
         for period in periods:
             if (acct.code, period.id) in outputs:
                 continue
@@ -454,7 +455,10 @@ def _calculate_subtotals(
             for c in formula.get("add", []):
                 total += outputs.get((c, period.id), ZERO)
             for c in formula.get("subtract", []):
-                total -= outputs.get((c, period.id), ZERO)
+                if is_pl:
+                    total += outputs.get((c, period.id), ZERO)
+                else:
+                    total -= outputs.get((c, period.id), ZERO)
             outputs[(acct.code, period.id)] = total
 
 
